@@ -1,0 +1,16 @@
+<script>
+// Redirect keeping the code as router code.
+if (window.location.pathname.slice(0,8)=='/static/'){
+  window.location="/"+"#/s/"+window.location.pathname.slice(8,window.location.pathname.length-5)+window.location.search
+}
+</script>
+<div class="ui text container">
+  <img src="serverboards.svg">
+  <h2 class="ui center aligned icon header">
+    <i class="spinner loading icon"/>
+    <div class="content">
+      <span id="title">Checking...</span>
+      <div class="sub header" id="description">Please wait...</div>
+    </div>
+  </h2>
+</div>

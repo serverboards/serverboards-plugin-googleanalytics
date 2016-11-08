@@ -1,0 +1,51 @@
+id: serverboards.google.analytics
+name: Google Analytics
+description: |
+  Connection to Google Analytics
+
+components:
+  - id: daemon
+    name: Google Analytics Proxy
+    type: cmd
+    command: serverboards-google-analytics.py
+    #strategy: singleton
+    #timeout: 2h
+    perms: plugin.data[serverboards.google.analytics]
+
+  - id: service
+    type: service
+    name: Google Analytics
+    icon: red google
+    description: |
+      Connection to Google Analytics.
+    traits: google.analytics
+    fields:
+      - name: access_description
+        type: description
+        description: |
+          Please click on the following URL to start the authorization process.
+
+          [Authorize Serverboards to access Analytics Data]({{authorization_url}})
+
+          If already authorized, clicking on the URL will renew/refresh the
+          authorization, discarding the old one.
+        vars:
+          - id: authorization_url
+            command: serverboards.google.analytics/daemon
+            call: authorize_url
+
+  - id: auth
+    type: screen
+    traits: hidden
+    name: Authorized
+    description: Screen to show at Oauth2 authorization phase.
+
+  - id: widget-bars
+    type: widget
+    name: Google Analytics // Bars
+    traits: google.analytics
+    params:
+      - id: analytics
+        type: service
+        traits: google.analytics
+        label: Related Analytics Service
