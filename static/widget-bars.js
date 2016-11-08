@@ -15,6 +15,8 @@
       analytics.call("get_data", ['118766509', start, end]).then( (data) => {
         console.log(data)
         graph.set_data(data)
+      }).catch((e) => {
+        graph.set_error(e)
       })
     }
 
