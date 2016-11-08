@@ -6,12 +6,12 @@ import httplib2, threading
 
 from serverboards import rpc
 from oauth2client import client
-from apiclient.discovery import build
 from urllib.parse import urlencode
+from googleapiclient import discovery
 
 import settings
 
-DISCOVERY_URI = ('https://analyticsreporting.googleapis.com/$discovery/rest')
+#DISCOVERY_URI = ('https://analyticsreporting.googleapis.com/$discovery/rest')
 OAUTH_AUTH_URL="https://accounts.google.com/o/oauth2/auth"
 OAUTH_AUTH_TOKEN_URL="https://accounts.google.com/o/oauth2/token"
 OAUTH_AUTH_REVOKE_URL="https://accounts.google.com/o/oauth2/token"
@@ -59,8 +59,6 @@ def authorize_url():
         #"state": SERVER_TOKEN
     }
     url = OAUTH_AUTH_URL+"?"+urlencode(params)
-
-    print(url)
     return url
 
 @serverboards.rpc_method
@@ -76,7 +74,6 @@ def store_code(code):
         "grant_type": "authorization_code",
     }
     response = requests.post(OAUTH_AUTH_TOKEN_URL, params)
-    print(response.text, dir(response))
     js = response.json()
     if 'error' in js:
         raise Exception(js['error_description'])
@@ -101,11 +98,10 @@ def store_code(code):
 
 @serverboards.rpc_method
 def test_get_analytics_data():
-    return get_data('118766509', '2016-10-01', '2016-10-06')
+    return get_data('23337374', '2016-10-01', '2016-10-06')
 
 analytics = None
-@serverboards.rpc_method
-def get_data(view, start, end):
+def get_analytics(version='v4'):
     global analytics
     if not analytics:
         storage = ServerboardsStorage()
@@ -113,7 +109,12 @@ def get_data(view, start, end):
         if not credentials:
             raise Exception("Invalid credentials. Reauthorize.")
         http = credentials.authorize(http=httplib2.Http())
-        analytics = build('analytics', 'v4', http=http, discoveryServiceUrl=DISCOVERY_URI)
+        analytics = discovery.build('analytics', version, http=http)
+    return analytics
+
+@serverboards.rpc_method
+def get_data(view, start, end):
+    analytics = get_analytics()
 
     data = analytics.reports().batchGet(
           body={
@@ -135,6 +136,24 @@ def get_data(view, start, end):
     data = [decorate(x) for x in data['reports'][0]['data']['rows']]
 
     return [{"name": "Sessions", "values" : data}]
+
+
+@serverboards.rpc_method
+def get_views():
+    analytics = get_analytics('v3')
+    accounts = analytics.management().accountSummaries().list().execute()
+    accounts = [
+            {
+                "name":"%s - %s - %s"%(a['name'], p['name'], pp['name']),
+                "value": pp["id"]
+            }
+        for a in accounts['items']
+        for p in a['webProperties']
+        for pp in p['profiles']
+        ]
+    accounts.sort(key=lambda ac: ac['name'])
+    return accounts
+
 
 def test():
     aurl = authorize_url()

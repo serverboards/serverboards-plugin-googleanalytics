@@ -12,7 +12,7 @@
       start=start.format(DATE_FORMAT)
       end=end.format(DATE_FORMAT)
 
-      analytics.call("get_data", ['118766509', start, end]).then( (data) => {
+      analytics.call("get_data", [config.viewid, start, end]).then( (data) => {
         console.log(data)
         graph.set_data(data)
       }).catch((e) => {

@@ -34,6 +34,7 @@ components:
             command: serverboards.google.analytics/daemon
             call: authorize_url
 
+
   - id: auth
     type: screen
     traits: hidden
@@ -49,3 +50,8 @@ components:
         type: service
         traits: google.analytics
         label: Related Analytics Service
+      - name: viewid
+        type: select call
+        options:
+          command: serverboards.google.analytics/daemon
+          call: get_views
