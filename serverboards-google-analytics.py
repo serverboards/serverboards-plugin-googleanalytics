@@ -1,8 +1,8 @@
 #!/usr/bin/python3
 
-import serverboards, tempfile, requests
-import os, json, sys, time
-import httplib2
+import serverboards, requests
+import os, json, sys, time, datetime
+import httplib2, threading
 
 from serverboards import rpc
 from oauth2client import client
@@ -14,6 +14,7 @@ import settings
 DISCOVERY_URI = ('https://analyticsreporting.googleapis.com/$discovery/rest')
 OAUTH_AUTH_URL="https://accounts.google.com/o/oauth2/auth"
 OAUTH_AUTH_TOKEN_URL="https://accounts.google.com/o/oauth2/token"
+OAUTH_AUTH_REVOKE_URL="https://accounts.google.com/o/oauth2/token"
 
 CLIENT_SECRETS_JSON={
   "installed": {
@@ -25,6 +26,28 @@ CLIENT_SECRETS_JSON={
   }
 }
 SCOPES = ['https://www.googleapis.com/auth/analytics.readonly']
+
+class ServerboardsStorage(client.Storage):
+    def __init__(self, id=""):
+        self.id=id
+        super(ServerboardsStorage, self).__init__(lock=threading.Lock())
+    def locked_get(self):
+        content = rpc.call("plugin.data_get", "serverboards.google.analytics", "credentials-"+self.id)
+        if not content:
+            return None
+        try:
+            credentials = client.OAuth2Credentials.from_json(content)
+            credentials.set_store(self)
+            return credentials
+        except:
+            pass
+        return None
+
+    def locked_put(self, credentials):
+        rpc.call("plugin.data_set", "serverboards.google.analytics", "credentials-"+self.id, credentials.to_json())
+    def locked_delete(self):
+        rpc.call("plugin.data_remove", "serverboards.google.analytics", "credentials-"+self.id)
+
 
 @serverboards.rpc_method
 def authorize_url():
@@ -57,23 +80,38 @@ def store_code(code):
     js = response.json()
     if 'error' in js:
         raise Exception(js['error_description'])
-    rpc.call("plugin.data_set", "serverboards.google.analytics", "authorization", js)
-    return js
+    storage = ServerboardsStorage()
+    credentials = client.OAuth2Credentials(
+        access_token=js["access_token"],
+        client_id=settings.CLIENT_ID,
+        client_secret=settings.CLIENT_SECRET,
+        refresh_token=js["refresh_token"],
+        token_expiry=datetime.datetime.utcnow() + datetime.timedelta(seconds=int(js["expires_in"])),
+        token_uri=OAUTH_AUTH_TOKEN_URL,
+        user_agent=None,
+        revoke_uri=OAUTH_AUTH_REVOKE_URL,
+        token_response=js,
+        scopes=SCOPES,
+        token_info_uri="https://www.googleapis.com/oauth2/v3/tokeninfo"
+    )
+    credentials.set_store(storage)
+    storage.put(credentials)
 
-analytics = None
+    return "ok"
+
 @serverboards.rpc_method
 def test_get_analytics_data():
     return get_data('118766509', '2016-10-01', '2016-10-06')
 
+analytics = None
 @serverboards.rpc_method
 def get_data(view, start, end):
     global analytics
     if not analytics:
-        analytics_auth_code = rpc.call("plugin.data_get", "serverboards.google.analytics", "authorization")
-        if not analytics_auth_code:
-            raise Exception("Client not authorized yet")
-
-        credentials = client.AccessTokenCredentials(analytics_auth_code["access_token"], "Serverboards/1.0")
+        storage = ServerboardsStorage()
+        credentials = ServerboardsStorage().get()
+        if not credentials:
+            raise Exception("Invalid credentials. Reauthorize.")
         http = credentials.authorize(http=httplib2.Http())
         analytics = build('analytics', 'v4', http=http, discoveryServiceUrl=DISCOVERY_URI)
 
