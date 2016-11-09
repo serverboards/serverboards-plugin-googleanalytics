@@ -51,6 +51,7 @@ components:
         traits: google.analytics
         label: Related Analytics Service
       - name: viewid
+        label: Property
         type: select call
         options:
           command: serverboards.google.analytics/daemon
