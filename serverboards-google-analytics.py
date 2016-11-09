@@ -100,17 +100,16 @@ def store_code(code):
 def test_get_analytics_data():
     return get_data('23337374', '2016-10-01', '2016-10-06')
 
-analytics = None
+analytics = {}
 def get_analytics(version='v4'):
-    global analytics
-    if not analytics:
+    if not analytics.get(version):
         storage = ServerboardsStorage()
         credentials = ServerboardsStorage().get()
         if not credentials:
             raise Exception("Invalid credentials. Reauthorize.")
         http = credentials.authorize(http=httplib2.Http())
-        analytics = discovery.build('analytics', version, http=http)
-    return analytics
+        analytics[version] = discovery.build('analytics', version, http=http)
+    return analytics.get(version)
 
 @serverboards.rpc_method
 def get_data(view, start, end):

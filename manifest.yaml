@@ -8,8 +8,8 @@ components:
     name: Google Analytics Proxy
     type: cmd
     command: serverboards-google-analytics.py
-    #strategy: singleton
-    #timeout: 2h
+    strategy: singleton
+    timeout: 2h
     perms: plugin.data[serverboards.google.analytics]
 
   - id: service
