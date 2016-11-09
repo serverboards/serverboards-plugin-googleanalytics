@@ -3,7 +3,7 @@
   let {plugin, store} = Serverboards
   const DATE_FORMAT = "YYYY-MM-DD"
 
-  function main(el, config){
+  function main(el, config, context){
     let graph=new BarGraph(el)
     let analytics
 
@@ -15,6 +15,7 @@
       analytics.call("get_data", [config.viewid, start, end]).then( (data) => {
         console.log(data)
         graph.set_data(data)
+        context.setTitle(data[0].name)
       }).catch((e) => {
         graph.set_error(e)
       })

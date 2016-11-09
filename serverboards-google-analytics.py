@@ -133,12 +133,24 @@ def get_data(view, start, end):
         return [date(datum['dimensions'][0]), datum['metrics'][0]['values'][0]]
 
     data = [decorate(x) for x in data['reports'][0]['data']['rows']]
+    name = get_view_name(view) + " - " + "Sessions"
 
-    return [{"name": "Sessions", "values" : data}]
-
+    return [{"name": name, "values" : data}]
 
 @serverboards.rpc_method
+def get_view_name(viewid):
+    try:
+        return next(x for x in get_views() if x["value"]==viewid)["name"]
+    except:
+        import traceback; traceback.print_exc()
+        raise Exception("View not found")
+
+views_cache=None
+@serverboards.rpc_method
 def get_views():
+    global views_cache
+    if views_cache:
+        return views_cache
     analytics = get_analytics('v3')
     accounts = analytics.management().accountSummaries().list().execute()
     accounts = [
@@ -151,6 +163,7 @@ def get_views():
         for pp in p['profiles']
         ]
     accounts.sort(key=lambda ac: ac['name'])
+    views_cache=accounts
     return accounts
 
 

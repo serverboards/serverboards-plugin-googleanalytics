@@ -9,7 +9,7 @@ components:
     type: cmd
     command: serverboards-google-analytics.py
     strategy: singleton
-    timeout: 2h
+    timeout: 10s
     perms: plugin.data[serverboards.google.analytics]
 
   - id: service
