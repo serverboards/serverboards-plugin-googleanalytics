@@ -155,7 +155,7 @@ def get_views():
     accounts = analytics.management().accountSummaries().list().execute()
     accounts = [
             {
-                "name":"%s - %s - %s"%(a['name'], p['name'], pp['name']),
+                "name":"%s - %s"%(p['name'], pp['name']),
                 "value": pp["id"]
             }
         for a in accounts['items']
