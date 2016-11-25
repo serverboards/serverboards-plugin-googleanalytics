@@ -147,7 +147,7 @@ def get_view_name(viewid):
 
 views_cache=None
 @serverboards.rpc_method
-def get_views():
+def get_views(**kwargs):
     global views_cache
     if views_cache:
         return views_cache
