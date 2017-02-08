@@ -6,33 +6,23 @@ import httplib2, threading
 
 from serverboards import rpc
 from oauth2client import client
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 from googleapiclient import discovery
-
-import settings
 
 #DISCOVERY_URI = ('https://analyticsreporting.googleapis.com/$discovery/rest')
 OAUTH_AUTH_URL="https://accounts.google.com/o/oauth2/auth"
 OAUTH_AUTH_TOKEN_URL="https://accounts.google.com/o/oauth2/token"
 OAUTH_AUTH_REVOKE_URL="https://accounts.google.com/o/oauth2/token"
 
-CLIENT_SECRETS_JSON={
-  "installed": {
-    "client_id": settings.CLIENT_ID,
-    "client_secret": settings.CLIENT_SECRET,
-    "redirect_uris": [],
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://accounts.google.com/o/oauth2/token"
-  }
-}
 SCOPES = ['https://www.googleapis.com/auth/analytics.readonly']
+settings = {}
 
 class ServerboardsStorage(client.Storage):
     def __init__(self, id=""):
         self.id=id
         super(ServerboardsStorage, self).__init__(lock=threading.Lock())
     def locked_get(self):
-        content = rpc.call("plugin.data_get", "serverboards.google.analytics", "credentials-"+self.id)
+        content = rpc.call("plugin.data_get", "credentials-"+self.id)
         if not content:
             return None
         try:
@@ -44,17 +34,28 @@ class ServerboardsStorage(client.Storage):
         return None
 
     def locked_put(self, credentials):
-        rpc.call("plugin.data_set", "serverboards.google.analytics", "credentials-"+self.id, credentials.to_json())
+        rpc.call("plugin.data_set", "credentials-"+self.id, credentials.to_json())
     def locked_delete(self):
-        rpc.call("plugin.data_remove", "serverboards.google.analytics", "credentials-"+self.id)
+        rpc.call("plugin.data_remove", "credentials-"+self.id)
 
+def ensure_settings():
+    if "client_id" not in settings:
+        data = serverboards.rpc.call("settings.get", "serverboards.google.analytics/settings")
+        if not data:
+            raise Exception("Google Analytics Integration not configured. Check system settings.")
+        settings.update(data)
+
+        base = serverboards.rpc.call("settings.get", "serverboards.core.settings/base")
+        settings.update(base)
 
 @serverboards.rpc_method
 def authorize_url():
+    ensure_settings()
+
     params={
         "response_type" : "code",
-        "client_id" : settings.CLIENT_ID,
-        "redirect_uri" : settings.SERVERBOARDS_URL + "/static/serverboards.google.analytics/auth.html",
+        "client_id" : settings["client_id"],
+        "redirect_uri" : urljoin(settings["base_url"], "/static/serverboards.google.analytics/auth.html"),
         "scope": 'https://www.googleapis.com/auth/analytics.readonly',
         #"state": SERVER_TOKEN
     }
@@ -63,26 +64,29 @@ def authorize_url():
 
 @serverboards.rpc_method
 def store_code(code):
+    ensure_settings()
+
     """
     Stores the code and get a refresh token and a access token
     """
     params={
         "code": code,
-        "client_id": settings.CLIENT_ID,
-        "client_secret": settings.CLIENT_SECRET,
-        "redirect_uri": settings.SERVERBOARDS_URL + "/static/serverboards.google.analytics/auth.html",
+        "client_id": settings["client_id"],
+        "client_secret": settings["client_secret"],
+        "redirect_uri": urljoin(settings["base_url"], "/static/serverboards.google.analytics/auth.html"),
         "grant_type": "authorization_code",
     }
     response = requests.post(OAUTH_AUTH_TOKEN_URL, params)
     js = response.json()
+    print(js.keys())
     if 'error' in js:
         raise Exception(js['error_description'])
     storage = ServerboardsStorage()
     credentials = client.OAuth2Credentials(
         access_token=js["access_token"],
-        client_id=settings.CLIENT_ID,
-        client_secret=settings.CLIENT_SECRET,
-        refresh_token=js["refresh_token"],
+        client_id=settings["client_id"],
+        client_secret=settings["client_secret"],
+        refresh_token=js.get("refresh_token"),
         token_expiry=datetime.datetime.utcnow() + datetime.timedelta(seconds=int(js["expires_in"])),
         token_uri=OAUTH_AUTH_TOKEN_URL,
         user_agent=None,
@@ -170,7 +174,6 @@ def get_views(**kwargs):
 def test():
     aurl = authorize_url()
     assert aurl
-    print(store_code(settings.ANALYTICS_CODE))
     #analytics = connect_to_analytics()
     #assert analytics
 

@@ -10,7 +10,9 @@ components:
     command: serverboards-google-analytics.py
     strategy: singleton
     timeout: 5m
-    perms: plugin.data[serverboards.google.analytics]
+    perms:
+      - settings.view[serverboards.google.analytics/settings]
+      - settings.view[serverboards.core.settings/base]
 
   - id: service
     type: service
@@ -40,6 +42,31 @@ components:
     traits: hidden
     name: Authorized
     description: Screen to show at Oauth2 authorization phase.
+
+  - id: auth_url
+    type: url
+    command: serverboards.google.analytics/daemon
+    call: authorize
+
+  - id: settings
+    type: settings
+    perms: settings
+    name: Google Analytics Integration
+    description: |
+      To be able to use Google integration, you require an authorization Token.
+
+      Serverboards can not provide one in the Community Edition as there are
+      quotas involved.
+
+      Get the API token credentials at [Google API Console](https://console.developers.google.com/):
+
+        *Credentials / Create / Client Id / Web*
+
+    fields:
+      - name: client_id
+        label: Client Id
+      - name: client_secret
+        label: Client Secret
 
   - id: widget-bars
     type: widget
