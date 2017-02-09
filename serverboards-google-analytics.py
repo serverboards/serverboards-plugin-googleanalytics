@@ -18,7 +18,9 @@ SCOPES = ['https://www.googleapis.com/auth/analytics.readonly']
 settings = {}
 
 class ServerboardsStorage(client.Storage):
-    def __init__(self, id=""):
+    def __init__(self, id=None):
+        serverboards.debug("%s"%(id))
+        assert id
         self.id=id
         super(ServerboardsStorage, self).__init__(lock=threading.Lock())
     def locked_get(self):
@@ -49,7 +51,8 @@ def ensure_settings():
         settings.update(base)
 
 @serverboards.rpc_method
-def authorize_url():
+def authorize_url(service, **kwargs):
+    service_id=service["uuid"]
     ensure_settings()
 
     params={
@@ -57,13 +60,13 @@ def authorize_url():
         "client_id" : settings["client_id"],
         "redirect_uri" : urljoin(settings["base_url"], "/static/serverboards.google.analytics/auth.html"),
         "scope": 'https://www.googleapis.com/auth/analytics.readonly',
-        #"state": SERVER_TOKEN
+        "state": service_id
     }
     url = OAUTH_AUTH_URL+"?"+urlencode(params)
     return url
 
 @serverboards.rpc_method
-def store_code(code):
+def store_code(service_id, code):
     ensure_settings()
 
     """
@@ -78,10 +81,9 @@ def store_code(code):
     }
     response = requests.post(OAUTH_AUTH_TOKEN_URL, params)
     js = response.json()
-    print(js.keys())
     if 'error' in js:
         raise Exception(js['error_description'])
-    storage = ServerboardsStorage()
+    storage = ServerboardsStorage(service_id)
     credentials = client.OAuth2Credentials(
         access_token=js["access_token"],
         client_id=settings["client_id"],
@@ -105,19 +107,22 @@ def test_get_analytics_data():
     return get_data('23337374', '2016-10-01', '2016-10-06')
 
 analytics = {}
-def get_analytics(version='v4'):
-    if not analytics.get(version):
-        storage = ServerboardsStorage()
-        credentials = ServerboardsStorage().get()
+def get_analytics(service_id, version='v4'):
+    serverboards.debug("%s"%(service_id))
+
+    ank=(service_id, version)
+    if not analytics.get(ank):
+        storage = ServerboardsStorage(service_id)
+        credentials = storage.get()
         if not credentials:
             raise Exception("Invalid credentials. Reauthorize.")
         http = credentials.authorize(http=httplib2.Http())
-        analytics[version] = discovery.build('analytics', version, http=http)
-    return analytics.get(version)
+        analytics[ank] = discovery.build('analytics', version, http=http)
+    return analytics.get(ank)
 
 @serverboards.rpc_method
-def get_data(view, start, end):
-    analytics = get_analytics()
+def get_data(service_id, view, start, end):
+    analytics = get_analytics(service_id)
 
     data = analytics.reports().batchGet(
           body={
@@ -137,25 +142,28 @@ def get_data(view, start, end):
         return [date(datum['dimensions'][0]), datum['metrics'][0]['values'][0]]
 
     data = [decorate(x) for x in data['reports'][0]['data']['rows']]
-    name = get_view_name(view) + " - " + "Sessions"
+    name = get_view_name(service_id, view) + " - " + "Sessions"
 
     return [{"name": name, "values" : data}]
 
 @serverboards.rpc_method
-def get_view_name(viewid):
+def get_view_name(service_id, viewid):
     try:
-        return next(x for x in get_views() if x["value"]==viewid)["name"]
+        return next(x for x in get_views(service_id) if x["value"]==viewid)["name"]
     except:
-        import traceback; traceback.print_exc()
         raise Exception("View not found")
 
 views_cache=None
 @serverboards.rpc_method
-def get_views(**kwargs):
+def get_views(service_id=None, service=None, **kwargs):
+    print(service)
+    assert service or service_id
+    if not service_id:
+        service_id=service["uuid"]
     global views_cache
     if views_cache:
         return views_cache
-    analytics = get_analytics('v3')
+    analytics = get_analytics(service_id, 'v3')
     accounts = analytics.management().accountSummaries().list().execute()
     accounts = [
             {

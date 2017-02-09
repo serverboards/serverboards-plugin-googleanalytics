@@ -74,6 +74,7 @@ components:
     traits: google.analytics
     params:
       - id: analytics
+        name: service
         type: service
         traits: google.analytics
         label: Related Analytics Service
