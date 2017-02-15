@@ -58,9 +58,12 @@ components:
       Serverboards can not provide one in the Community Edition as there are
       quotas involved.
 
-      Get the API token credentials at [Google API Console](https://console.developers.google.com/):
+      Get the API token credentials at [Google API Console](https://console.developers.google.com/)
+      at *Credentials / Create / Oauth API / Client Id / Web*
 
-        *Credentials / Create / Client Id / Web*
+      The redirect URI must be the servername including protocol
+      `https://example.com/static/serverboards.google.analytics/auth.html`
+
 
     fields:
       - name: client_id
