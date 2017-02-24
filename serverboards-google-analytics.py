@@ -102,10 +102,6 @@ def store_code(service_id, code):
 
     return "ok"
 
-@serverboards.rpc_method
-def test_get_analytics_data():
-    return get_data('23337374', '2016-10-01', '2016-10-06')
-
 analytics = {}
 def get_analytics(service_id, version='v4'):
     serverboards.debug("%s"%(service_id))

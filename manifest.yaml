@@ -43,11 +43,6 @@ components:
     name: Authorized
     description: Screen to show at Oauth2 authorization phase.
 
-  - id: auth_url
-    type: url
-    command: serverboards.google.analytics/daemon
-    call: authorize
-
   - id: settings
     type: settings
     perms: settings
