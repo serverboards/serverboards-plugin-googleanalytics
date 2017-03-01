@@ -8,7 +8,7 @@
     let analytics
 
     function update(){
-      let {start, end} = store.getState().serverboard.daterange
+      let {start, end} = store.getState().project.daterange
       start=start.format(DATE_FORMAT)
       end=end.format(DATE_FORMAT)
       console.log(config)
@@ -27,8 +27,8 @@
       .then( function(_analytics){
         analytics=_analytics
       } ).then( update )
-    store.on("serverboard.daterange.start", update)
-    store.on("serverboard.daterange.end", update)
+    store.on("project.daterange.start", update)
+    store.on("project.daterange.end", update)
   }
 
   Serverboards.add_widget("serverboards.google.analytics/widget-bars", main)
