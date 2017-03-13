@@ -24,7 +24,7 @@ class ServerboardsStorage(client.Storage):
         self.id=id
         super(ServerboardsStorage, self).__init__(lock=threading.Lock())
     def locked_get(self):
-        content = rpc.call("plugin.data_get", "credentials-"+self.id)
+        content = rpc.call("plugin.data.get", "credentials-"+self.id)
         if not content:
             return None
         try:
@@ -36,9 +36,9 @@ class ServerboardsStorage(client.Storage):
         return None
 
     def locked_put(self, credentials):
-        rpc.call("plugin.data_set", "credentials-"+self.id, credentials.to_json())
+        rpc.call("plugin.data.update", "credentials-"+self.id, credentials.to_json())
     def locked_delete(self):
-        rpc.call("plugin.data_remove", "credentials-"+self.id)
+        rpc.call("plugin.data.delete", "credentials-"+self.id)
 
 def ensure_settings():
     if "client_id" not in settings:
