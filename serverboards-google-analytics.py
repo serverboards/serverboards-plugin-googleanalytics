@@ -19,7 +19,6 @@ settings = {}
 
 class ServerboardsStorage(client.Storage):
     def __init__(self, id=None):
-        serverboards.debug("%s"%(id))
         assert id
         self.id=id
         super(ServerboardsStorage, self).__init__(lock=threading.Lock())
@@ -104,8 +103,6 @@ def store_code(service_id, code):
 
 analytics = {}
 def get_analytics(service_id, version='v4'):
-    serverboards.debug("%s"%(service_id))
-
     ank=(service_id, version)
     if not analytics.get(ank):
         storage = ServerboardsStorage(service_id)
@@ -152,7 +149,6 @@ def get_view_name(service_id, viewid):
 views_cache=None
 @serverboards.rpc_method
 def get_views(service_id=None, service=None, **kwargs):
-    print(service)
     assert service or service_id
     if not service_id:
         service_id=service["uuid"]
@@ -174,6 +170,31 @@ def get_views(service_id=None, service=None, **kwargs):
     views_cache=accounts
     return accounts
 
+@serverboards.rpc_method
+def check_rules(*_args, **_kwargs):
+    rules = serverboards.rpc.call("rules.list", trigger="serverboards.google.analytics/trigger", is_active=True)
+    for r in rules:
+        params = r["trigger"]["params"]
+        service_id = params["service"]["uuid"]
+        view = params["viewid"]
+        end = datetime.datetime.now().strftime("%Y-%m-%d")
+        state = False
+        limit = float(params["value"])
+        cond = params["condition"] or ">"
+        data = get_data(service_id, view, end, end)
+        value = float(data[0]["values"][0][1])
+
+        if cond == "<":
+            state = value < limit
+        elif cond == "<=":
+            state = value <= limit
+        elif cond == ">":
+            state = value > limit
+        elif cond == ">=":
+            state = value >= limit
+        state = "ok" if state else "nok"
+        serverboards.info("Google Analytics Rule check %s: %s %s %s -> %s"%(r["uuid"], value, cond, limit, state))
+        serverboards.rpc.event("rules.trigger", id=r["uuid"], state=state, value=value)
 
 def test():
     aurl = authorize_url()

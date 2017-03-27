@@ -11,10 +11,12 @@ components:
     type: cmd
     command: serverboards-google-analytics.py
     strategy: singleton
-    timeout: 5m
+    timeout: 30s
     perms:
       - settings.view[serverboards.google.analytics/settings]
       - settings.view[serverboards.core.settings/base]
+      - rules.view
+      - rules.trigger
 
   - id: service
     type: service
@@ -84,3 +86,53 @@ components:
         options:
           command: serverboards.google.analytics/daemon
           call: get_views
+
+
+  - id: trigger
+    type: trigger
+    name: Google Analytics
+    description: Watches for some conditions on the Google Analytics data.
+    traits: google.analytics
+    states: ok nok
+    start:
+      params:
+        - name: service
+          label: Service
+          type: service
+          traits: google.analytics
+        - name: viewid
+          label: Property
+          type: select call
+          options:
+            command: serverboards.google.analytics/daemon
+            call: get_views
+        - name: condition
+          label: Condition
+          type: select
+          options:
+            - name: Greater
+              value: ">"
+            - name: Less
+              value: "<"
+            - name: Greater or equal
+              value: ">="
+            - name: Less or equal
+              value: "<="
+        - name: value
+          label: Value
+          type: text
+
+  - id: rules_cron
+    name: Trigger Cron
+    description: Checks every morning for the Google Analytics rules.
+    cron: 00 8 * * *
+    action: serverboards.google.analytics/check_rules
+    params: {}
+
+  - id: check_rules
+    type: action
+    name: Check Google Analytics Rules
+    command: daemon
+    call:
+      method: check_rules
+    traits: google.analytics
