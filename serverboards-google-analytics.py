@@ -23,10 +23,11 @@ class ServerboardsStorage(client.Storage):
         self.id=id
         super(ServerboardsStorage, self).__init__(lock=threading.Lock())
     def locked_get(self):
-        content = rpc.call("plugin.data.get", "credentials-"+self.id)
+        content = rpc.call("service.get", self.id).get("config", {})
         if not content:
             return None
         try:
+            content=json.dumps(content)
             credentials = client.OAuth2Credentials.from_json(content)
             credentials.set_store(self)
             return credentials
@@ -35,9 +36,10 @@ class ServerboardsStorage(client.Storage):
         return None
 
     def locked_put(self, credentials):
-        rpc.call("plugin.data.update", "credentials-"+self.id, credentials.to_json())
+        data = {"config":json.loads(credentials.to_json())}
+        rpc.call("service.update", self.id, data)
     def locked_delete(self):
-        rpc.call("plugin.data.delete", "credentials-"+self.id)
+        rpc.call("service.update", self.id, {"config":{}})
 
 def ensure_settings():
     if "client_id" not in settings:

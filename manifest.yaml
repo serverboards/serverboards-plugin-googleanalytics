@@ -17,6 +17,8 @@ components:
       - settings.view[serverboards.core.settings/base]
       - rules.view
       - rules.trigger
+      - service.update
+      - service.get
 
   - id: service
     type: service
