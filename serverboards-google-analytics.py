@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import serverboards, requests
+import serverboards, requests, math
 import os, json, sys, time, datetime
 import httplib2, threading
 
@@ -115,29 +115,77 @@ def get_analytics(service_id, version='v4'):
         analytics[ank] = discovery.build('analytics', version, http=http)
     return analytics.get(ank)
 
+def date(d,t=0,m=0):
+    return time.mktime((int(d[0:4]), int(d[4:6]), int(d[6:8]), int(t), int(m),0, 0,0,0))
+
+def do_clustering(data, start, end, clustering):
+    ret=[0.0] * (math.ceil((end-start)/clustering)+1)
+
+    for time, value in data:
+        quant = math.ceil((time - start)/clustering)
+        if quant >= len(ret):
+            serverboards.warning("Trying to add into a out of index quant: %s. max %s"%(quant, len(ret)))
+        else:
+            ret[quant]+=float(value)
+
+    time=start
+    for val in ret:
+        yield [time, val]
+        time+=clustering
+
 @serverboards.rpc_method
 def get_data(service_id, view, start, end):
     analytics = get_analytics(service_id)
+
+    # serverboards.debug("%s %s"%(start, end))
+    hour_filter=(
+        time.mktime((int(start[0:4]), int(start[5:7]), int(start[8:10]), int(start[11:13]),int(start[14:16]),0, 0,0,0)),
+        time.mktime((int(end[0:4]), int(end[5:7]), int(end[8:10]), int(end[11:13]),int(end[14:16]),0, 0,0,0))
+    )
+    filter_range=hour_filter[1]-hour_filter[0]
+
+
+    if filter_range > (4*24*60*60):
+        extra_dimensions=[]
+        clustering=24*60*60
+    elif filter_range > (4*60*60):
+        extra_dimensions=[{"name":'ga:hour'}]
+        clustering=60*60
+    elif filter_range > 60*60:
+        extra_dimensions=[{"name":'ga:hour'},{"name":'ga:minute'}]
+        clustering=15*60
+    else:
+        extra_dimensions=[{"name":'ga:hour'},{"name":'ga:minute'}]
+        clustering=60
+
+    # serverboards.debug("hour filtered %s %s %s %s"%(hour_filter,filter_range, extra_dimensions, clustering))
 
     data = analytics.reports().batchGet(
           body={
             'reportRequests': [
             {
               'viewId': view,
-              'dateRanges': [{'startDate': start, 'endDate': end}],
+              'dateRanges': [{'startDate': start[0:10], 'endDate': end[0:10]}],
               'metrics': [{'expression': 'ga:sessions'}],
-              'dimensions': [{"name":'ga:date'}]
+              'dimensions': [{"name":'ga:date'}] + extra_dimensions
             }]
           }
       ).execute()
 
     def decorate(datum):
-        def date(d):
-            return time.mktime((int(d[0:4]), int(d[4:6]), int(d[6:8]), 0,0,0, 0,0,0))
-        return [date(datum['dimensions'][0]), datum['metrics'][0]['values'][0]]
+        d=date(*datum['dimensions'])
+        # serverboards.debug("%s %s %s %s"%(datum, d, hour_filter, hour_filter[0] <= d <= hour_filter[1]))
+        if not (hour_filter[0] <= d <= hour_filter[1]):
+             return None
+        return [d, datum['metrics'][0]['values'][0]]
+    # serverboards.debug("Result: %s"%(data,))
 
-    data = [decorate(x) for x in data['reports'][0]['data']['rows']]
+    data = [decorate(x) for x in data['reports'][0]['data'].get('rows',[])]
+    data = [x for x in data if x] # remove empty
+    data = list( do_clustering(data, *hour_filter, clustering) )
+
     name = get_view_name(service_id, view) + " - " + "Sessions"
+    # serverboards.debug("Return data %s"%(data,))
 
     return [{"name": name, "values" : data}]
 
