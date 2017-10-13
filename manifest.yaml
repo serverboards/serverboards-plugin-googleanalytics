@@ -4,6 +4,7 @@ description: |
   Connection to Google Analytics
 version: 17.04
 author: David Moreno <dmoreno@serverboards.io>
+postinst: postinst.sh
 
 components:
   - id: daemon
