@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!env/bin/python3
 
 import serverboards, requests, math
 import os, json, sys, time, datetime
