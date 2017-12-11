@@ -112,7 +112,7 @@ def get_analytics(service_id, version='v4'):
         if not credentials:
             raise Exception("Invalid credentials. Reauthorize.")
         http = credentials.authorize(http=httplib2.Http())
-        analytics[ank] = discovery.build('analytics', version, http=http)
+        analytics[ank] = discovery.build('analytics', version, http=http, credentials=credentials)
     return analytics.get(ank)
 
 def date(d,t=0,m=0):
