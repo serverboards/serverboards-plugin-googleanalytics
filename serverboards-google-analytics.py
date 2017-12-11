@@ -111,8 +111,7 @@ def get_analytics(service_id, version='v4'):
         credentials = storage.get()
         if not credentials:
             raise Exception("Invalid credentials. Reauthorize.")
-        http = credentials.authorize(http=httplib2.Http())
-        analytics[ank] = discovery.build('analytics', version, http=http, credentials=credentials)
+        analytics[ank] = discovery.build('analytics', version, credentials=credentials)
     return analytics.get(ank)
 
 def date(d,t=0,m=0):
@@ -198,14 +197,11 @@ def get_view_name(service_id, viewid):
 
 views_cache=None
 @serverboards.rpc_method
-def get_views(service_id=None, service=None, **kwargs):
-    assert service or service_id
-    if not service_id:
-        service_id=service["uuid"]
+def get_views(service=None, **kwargs):
     global views_cache
     if views_cache:
         return views_cache
-    analytics = get_analytics(service_id, 'v3')
+    analytics = get_analytics(service, 'v3')
     accounts = analytics.management().accountSummaries().list().execute()
     accounts = [
             {

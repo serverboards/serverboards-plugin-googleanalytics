@@ -89,6 +89,8 @@ components:
         options:
           command: serverboards.google.analytics/daemon
           call: get_views
+          params:
+            - name: service
 
 
   - id: trigger
