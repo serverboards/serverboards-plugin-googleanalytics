@@ -52,7 +52,10 @@ def ensure_settings():
         settings.update(base)
 
 @serverboards.rpc_method
-def authorize_url(service, **kwargs):
+def authorize_url(service=None, **kwargs):
+    print(kwargs)
+    if not service:
+        return ""
     service_id=service["uuid"]
     ensure_settings()
 
