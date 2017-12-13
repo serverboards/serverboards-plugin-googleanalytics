@@ -4,7 +4,7 @@ import serverboards, requests, math
 import os, json, sys, time, datetime
 import httplib2, threading
 
-from serverboards import rpc
+from serverboards import rpc, print
 from oauth2client import client
 from urllib.parse import urlencode, urljoin
 from googleapiclient import discovery
@@ -53,7 +53,6 @@ def ensure_settings():
 
 @serverboards.rpc_method
 def authorize_url(service=None, **kwargs):
-    print(kwargs)
     if not service:
         return ""
     service_id=service["uuid"]
@@ -64,7 +63,9 @@ def authorize_url(service=None, **kwargs):
         "client_id" : settings["client_id"],
         "redirect_uri" : urljoin(settings["base_url"], "/static/serverboards.google.analytics/auth.html"),
         "scope": 'https://www.googleapis.com/auth/analytics.readonly',
-        "state": service_id
+        "state": service_id,
+        "access_type": "offline",
+        "approval_prompt": "force"
     }
     url = OAUTH_AUTH_URL+"?"+urlencode(params)
     return url
@@ -87,6 +88,7 @@ def store_code(service_id, code):
     js = response.json()
     if 'error' in js:
         raise Exception(js['error_description'])
+    print(js)
     storage = ServerboardsStorage(service_id)
     credentials = client.OAuth2Credentials(
         access_token=js["access_token"],

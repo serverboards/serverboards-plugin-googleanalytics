@@ -26,7 +26,14 @@
         graph.set_data(data)
         context.setTitle(data[0].name)
       }).catch((e) => {
-        graph.set_error(e)
+        if (e=="invalid_grant"){
+          console.log(config.service)
+          analytics.call("authorize_url", [config.service]).then( (url) => {
+            graph.set_error(`Google Drive grant has expired and was not automatically refreshed. Click [here](${url}) to renew.`)
+          })
+        }
+        else
+          graph.set_error(e)
       })
     }
 
