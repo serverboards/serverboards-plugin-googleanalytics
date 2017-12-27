@@ -2,7 +2,7 @@ id: serverboards.google.analytics
 name: Google Analytics
 description: |
   Connection to Google Analytics
-version: 17.04
+version: "17.10"
 author: David Moreno <dmoreno@serverboards.io>
 postinst: postinst.sh
 
@@ -93,6 +93,7 @@ components:
       - name: viewid
         label: Property
         type: select call
+        dynamic: true
         options:
           command: serverboards.google.analytics/daemon
           call: get_views
@@ -105,7 +106,6 @@ components:
     name: Google Analytics
     description: Watches for some conditions on the Google Analytics data.
     traits: google.analytics cloud
-    states: ok nok
     start:
       params:
         - name: service
@@ -115,24 +115,12 @@ components:
         - name: viewid
           label: Property
           type: select call
+          card: true
           options:
             command: serverboards.google.analytics/daemon
             call: get_views
-        - name: condition
-          label: Condition
-          type: select
-          options:
-            - name: Greater
-              value: ">"
-            - name: Less
-              value: "<"
-            - name: Greater or equal
-              value: ">="
-            - name: Less or equal
-              value: "<="
-        - name: value
-          label: Value
-          type: text
+    result:
+      value: Latest value of the metric
 
   - id: rules_cron
     name: Trigger Cron

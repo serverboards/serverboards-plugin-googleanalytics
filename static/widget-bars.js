@@ -2,7 +2,6 @@
   let {BarGraph} = Serverboards.graphs
   let {plugin, store, moment} = Serverboards
   const DATE_FORMAT = "YYYY-MM-DDTHH:mm"
-  const MAX_REFRESH_PERIOD_S = 120
 
   function main(el, config, context){
     let graph=new BarGraph(el)
@@ -10,17 +9,31 @@
     graph.set_loading()
 
     let last_update_timestamp=0
+    let last_tdiff = 0
     function update(){
       let current_update_timestamp=moment().unix()
-      if (current_update_timestamp - last_update_timestamp < MAX_REFRESH_PERIOD_S)
-        return
-      last_update_timestamp=current_update_timestamp
 
       let {start, end} = store.getState().project.daterange
+      let tdiff = moment.duration(end.diff(start)).asSeconds()
+      // console.log("Update? start", start.format("HH:mm:ss"), "end", end.format("HH:mm:ss"), tdiff/30.0)
+
+      if (tdiff == last_tdiff){
+        // console.log("Refresh? ", current_update_timestamp - last_update_timestamp, ">", last_tdiff/30.0)
+        if (current_update_timestamp - last_update_timestamp < (last_tdiff / 30.0) ) {
+          // console.log("Do not refresh yet. Too early.")
+          return
+        }
+      }
+      else{
+        last_tdiff = tdiff
+        // console.log("tdiff changed", tdiff)
+      }
+      // console.log("Update")
 
 
       start=start.format(DATE_FORMAT)
       end=end.format(DATE_FORMAT)
+
 
       analytics.call("get_data", [config.service.uuid, config.viewid, start, end]).then( (data) => {
         graph.set_data(data)
@@ -35,6 +48,9 @@
         else
           graph.set_error(e)
       })
+
+
+      last_update_timestamp=current_update_timestamp
     }
 
     plugin.start("serverboards.google.analytics/daemon")
@@ -43,6 +59,11 @@
       } ).then( update )
     store.on("project.daterange.start", update)
     store.on("project.daterange.end", update)
+
+    return function(){
+      store.off("project.daterange.start", update)
+      store.off("project.daterange.end", update)
+    }
   }
 
   Serverboards.add_widget("serverboards.google.analytics/widget-bars", main)

@@ -1,6 +1,8 @@
 import json, os, sys, select, time, io
 from contextlib import contextmanager
 
+plugin_id = os.environ.get("PLUGIN_ID")
+
 try:
     input=raw_input
 except:
@@ -118,6 +120,7 @@ class RPC:
         callerf=inspect.stack()[level]
 
         caller={
+          "plugin_id":plugin_id,
           "function":callerf[3],
           "file":callerf[1],
           "line":callerf[2],
@@ -664,19 +667,22 @@ class WriteTo:
         self.fn = fn
         self.extra = extra
     def __call__(self, *args, **extra):
+        nextra = {**{"level":1}, **self.extra, **extra}
         if not args: # if no data, add extras for contexts.
-            return WriteTo(self.fn, **{**self.extra, **extra})
-        self.fn(*args, **{**{"level":1}, **extra})
+            return WriteTo(self.fn, **nextra)
+        self.fn(*args, **nextra)
     def write(self, data, *args, **extra):
         if data.endswith('\n'):
             data=data[:-1]
-        self.fn(data, *args, **{**{"level":1}, **extra})
+        self.fn(data, *args, **{**{"level":1}, **self.extra, **extra})
+    def flush(*args, **kwargs):
+        pass
     @contextmanager
     def context(self, level=2, **extra):
         value = io.StringIO()
         yield value
         value.seek(0)
-        self.fn(value.read(), **{**{"level":level}, **extra})
+        self.fn(value.read(), **{**{"level":level}, **self.extra, **extra})
 
 error = WriteTo(rpc.error)
 debug = WriteTo(rpc.debug)
@@ -785,8 +791,8 @@ class Plugin:
         def __init__(self, plugin, method):
             self.plugin=plugin
             self.method=method
-        def __call__(self, *args, _async=False, **kwargs):
-            return rpc.call("plugin.call", self.plugin.uuid, self.method, args or kwargs, _async=_async)
+        def __call__(self, *args, **kwargs):
+            return self.plugin.call(self.method, *args, **kwargs)
 
     def __init__(self, plugin_id, kill_and_restart = False, restart = True):
         self.plugin_id = plugin_id
@@ -819,6 +825,7 @@ class Plugin:
         self.uuid = None
         return self
 
+    RETRY_EVENTS = [ "exit", "unknown_plugin at plugin.call", "unknown_plugin"]
     def call(self, method, *args, _async=False, **kwargs):
         """
         Call a method by name.
@@ -828,7 +835,9 @@ class Plugin:
         try:
             return rpc.call("plugin.call", self.uuid, method, args or kwargs, _async=_async)
         except Exception as e:
-            if e == "exit" and self.restart: # if error because exitted, and may restart, restart and try again (no loop)
+            # if exited or plugin call returns unknown method (refered to the method to call at the plugin), restart and try again.
+            if (str(e) in Plugin.RETRY_EVENTS) and self.restart: # if error because exitted, and may restart, restart and try again (no loop)
+                debug("Restarting plugin", self.plugin_id)
                 self.start()
                 return rpc.call("plugin.call", self.uuid, method, args or kwargs)
             else:

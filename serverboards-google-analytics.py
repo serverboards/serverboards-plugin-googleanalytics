@@ -48,7 +48,7 @@ def ensure_settings():
             raise Exception("Google Analytics Integration not configured. Check system settings.")
         settings.update(data)
 
-        base = serverboards.rpc.call("settings.get", "serverboards.core.settings/base")
+        base = serverboards.rpc.call("settings.get", "serverboards.core.settings/base", {"base_url": "http://localhost:8080"})
         settings.update(base)
 
 @serverboards.rpc_method
@@ -60,7 +60,7 @@ def authorize_url(service=None, **kwargs):
 
     params={
         "response_type" : "code",
-        "client_id" : settings["client_id"],
+        "client_id" : settings["client_id"].strip(),
         "redirect_uri" : urljoin(settings["base_url"], "/static/serverboards.google.analytics/auth.html"),
         "scope": 'https://www.googleapis.com/auth/analytics.readonly',
         "state": service_id,
@@ -79,8 +79,8 @@ def store_code(service_id, code):
     """
     params={
         "code": code,
-        "client_id": settings["client_id"],
-        "client_secret": settings["client_secret"],
+        "client_id": settings["client_id"].strip(),
+        "client_secret": settings["client_secret"].strip(),
         "redirect_uri": urljoin(settings["base_url"], "/static/serverboards.google.analytics/auth.html"),
         "grant_type": "authorization_code",
     }
@@ -92,8 +92,8 @@ def store_code(service_id, code):
     storage = ServerboardsStorage(service_id)
     credentials = client.OAuth2Credentials(
         access_token=js["access_token"],
-        client_id=settings["client_id"],
-        client_secret=settings["client_secret"],
+        client_id=settings["client_id"].strip(),
+        client_secret=settings["client_secret"].strip(),
         refresh_token=js.get("refresh_token"),
         token_expiry=datetime.datetime.utcnow() + datetime.timedelta(seconds=int(js["expires_in"])),
         token_uri=OAUTH_AUTH_TOKEN_URL,
@@ -110,6 +110,8 @@ def store_code(service_id, code):
 
 analytics = {}
 def get_analytics(service_id, version='v4'):
+    if not service_id:
+        return None
     ank=(service_id, version)
     if not analytics.get(ank):
         storage = ServerboardsStorage(service_id)
@@ -140,6 +142,7 @@ def do_clustering(data, start, end, clustering):
 @serverboards.rpc_method
 def get_data(service_id, view, start, end):
     analytics = get_analytics(service_id)
+    assert analytics, "Could not access to analytics of this service"
 
     # serverboards.debug("%s %s"%(start, end))
     hour_filter=(
@@ -203,6 +206,9 @@ def get_view_name(service_id, viewid):
 views_cache=None
 @serverboards.rpc_method
 def get_views(service=None, **kwargs):
+    # print("Get views of ", service)
+    if not service:
+        return []
     global views_cache
     if views_cache:
         return views_cache
