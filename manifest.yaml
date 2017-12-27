@@ -104,28 +104,32 @@ components:
   - id: trigger
     type: trigger
     name: Google Analytics
-    description: Watches for some conditions on the Google Analytics data.
+    description: Watches on some Google Analytics view today statistics every 30m.
+    icon: google red
     traits: google.analytics cloud
     start:
       params:
-        - name: service
+        - name: service_id
           label: Service
           type: service
           traits: google.analytics
         - name: viewid
           label: Property
           type: select call
+          dynamic: true
           card: true
           options:
             command: serverboards.google.analytics/daemon
             call: get_views
+            params:
+              - name: service_id
     result:
       value: Latest value of the metric
 
   - id: rules_cron
     name: Trigger Cron
-    description: Checks every morning for the Google Analytics rules.
-    cron: 00 8 * * *
+    description: Checks every 30m for the Google Analytics rules.
+    cron: 00,30 * * * *
     action: serverboards.google.analytics/check_rules
     params: {}
 

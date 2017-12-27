@@ -88,7 +88,7 @@ def store_code(service_id, code):
     js = response.json()
     if 'error' in js:
         raise Exception(js['error_description'])
-    print(js)
+    # print(js)
     storage = ServerboardsStorage(service_id)
     credentials = client.OAuth2Credentials(
         access_token=js["access_token"],
@@ -205,14 +205,14 @@ def get_view_name(service_id, viewid):
 
 views_cache=None
 @serverboards.rpc_method
-def get_views(service=None, **kwargs):
+def get_views(service_id=None, **kwargs):
     # print("Get views of ", service)
-    if not service:
+    if not service_id:
         return []
     global views_cache
     if views_cache:
         return views_cache
-    analytics = get_analytics(service, 'v3')
+    analytics = get_analytics(service_id, 'v3')
     accounts = analytics.management().accountSummaries().list().execute()
     accounts = [
             {
@@ -230,28 +230,17 @@ def get_views(service=None, **kwargs):
 @serverboards.rpc_method
 def check_rules(*_args, **_kwargs):
     rules = serverboards.rpc.call("rules.list", trigger="serverboards.google.analytics/trigger", is_active=True)
+    date = datetime.datetime.now().strftime("%Y-%m-%d")
     for r in rules:
         params = r["trigger"]["params"]
-        service_id = params["service"]["uuid"]
+        service_id = params["service_id"]
         view = params["viewid"]
-        end = datetime.datetime.now().strftime("%Y-%m-%d")
-        state = False
-        limit = float(params["value"])
-        cond = params["condition"] or ">"
+        end = date
         data = get_data(service_id, view, end, end)
         value = float(data[0]["values"][0][1])
 
-        if cond == "<":
-            state = value < limit
-        elif cond == "<=":
-            state = value <= limit
-        elif cond == ">":
-            state = value > limit
-        elif cond == ">=":
-            state = value >= limit
-        state = "ok" if state else "nok"
-        serverboards.info("Google Analytics Rule check %s: %s %s %s -> %s"%(r["uuid"], value, cond, limit, state))
-        serverboards.rpc.event("rules.trigger", id=r["uuid"], state=state, value=value)
+        serverboards.info("Google Analytics Rule check %s: %s"%(r["uuid"], value))
+        serverboards.rpc.event("rules.trigger", id=r["uuid"], date=date, value=value)
 
 def test():
     aurl = authorize_url()
