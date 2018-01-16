@@ -49,7 +49,10 @@ components:
           - id: authorization_url
             command: serverboards.google.analytics/daemon
             call: authorize_url
-
+    status:
+      command: serverboards.google.analytics/daemon
+      call: analytics_is_up
+      frequency: 6h
 
   - id: auth
     type: screen

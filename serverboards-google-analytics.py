@@ -242,6 +242,17 @@ def check_rules(*_args, **_kwargs):
         serverboards.info("Google Analytics Rule check %s: %s"%(r["uuid"], value))
         serverboards.rpc.event("rules.trigger", id=r["uuid"], date=date, value=value)
 
+@serverboards.rpc_method
+def analytics_is_up(service):
+    try:
+        if get_analytics(service["uuid"]):
+            return "ok"
+        else:
+            return "nok"
+    except:
+        return "unauthorized"
+
+
 def test():
     aurl = authorize_url()
     assert aurl
