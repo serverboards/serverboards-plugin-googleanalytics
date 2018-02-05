@@ -12,7 +12,7 @@ components:
     type: cmd
     command: serverboards-google-analytics.py
     strategy: singleton
-    timeout: 30s
+    timeout: 5m
     perms:
       - settings.view[serverboards.google.analytics/settings]
       - settings.view[serverboards.core.settings/base]
@@ -143,3 +143,12 @@ components:
     call:
       method: check_rules
     traits: google.analytics hidden
+
+  - id: extractor_basic
+    name: Google Analytics
+    type: extractor
+    service: serverboards.google.analytics/service
+    icon: red google
+    command: serverboards.google.analytics/daemon
+    extractor: basic_extractor
+    schema: basic_schema

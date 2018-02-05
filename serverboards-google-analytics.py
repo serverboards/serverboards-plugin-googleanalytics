@@ -303,6 +303,138 @@ def analytics_is_up(service):
         return "unauthorized"
 
 
+ACCOUNT_COLUMNS = [
+    "account_id", "account_name",
+    "property_id", "property_name", "property_url",
+    "profile_id", "profile_name"
+]
+
+DATA_COLUMNS = [
+    "profile_id",
+    "datetime",
+    "value"
+]
+
+
+@serverboards.rpc_method
+def basic_schema(config, table=None):
+    if not table:
+        return ["account", "data"]
+
+    if table == "account":
+        return {
+            "columns": ACCOUNT_COLUMNS
+        }
+    if table == "data":
+        return {
+            "columns": DATA_COLUMNS
+        }
+    raise Exception("unknown-table")
+
+
+@serverboards.rpc_method
+def basic_extractor(config, table, quals, columns):
+    if table == "account":
+        return basic_extractor_accounts(config, quals, columns)
+    if table == "data":
+        return basic_extractor_data(config, quals, columns)
+    raise Exception("unknown-table")
+
+
+@serverboards.cache_ttl(60)
+def basic_extractor_accounts(config, quals, columns):
+    service_id = config["service"]
+
+    analytics = get_analytics(service_id, 'v3')
+    accounts = analytics.management().accountSummaries().list().execute()
+    rows = [
+        [
+            account["id"],
+            account["name"],
+            prop["id"],
+            prop["name"],
+            prop.get("websiteUrl"),
+            profile["id"],
+            profile["name"],
+        ]
+        for account in accounts['items']
+        for prop in account['webProperties']
+        for profile in prop['profiles']
+    ]
+
+    return {
+        "columns": ACCOUNT_COLUMNS,
+        "rows": rows
+    }
+
+
+def basic_extractor_data(config, quals, columns):
+    service_id = config["service"]
+    profile_id = get_qual(quals, "=", "profile_id")
+    start = get_qual(quals, ">=", "datetime")[:10]
+    end = get_qual(quals, "<=", "datetime")[:10]
+
+    return basic_extractor_data_cacheable(start, end, service_id, profile_id)
+
+
+@serverboards.cache_ttl(120)
+def basic_extractor_data_cacheable(start, end, service_id, profile_id):
+    analytics = get_analytics(service_id)
+    days = day_diff(end, start)
+
+    extra_dimensions = []
+    if days <= 3:
+        extra_dimensions = [{"name": 'ga:hour'}]
+    if days <= 1:
+        extra_dimensions = [{"name": 'ga:minute'}]
+
+    rows = []
+    data = analytics.reports().batchGet(
+        body={
+            'reportRequests': [
+                {
+                    'viewId': profile_id,
+                    'dateRanges': [{
+                        'startDate': start,
+                        'endDate': end
+                    }],
+                    'metrics': [{'expression': 'ga:sessions'}],
+                    'dimensions': [{"name": 'ga:date'}] + extra_dimensions
+                }]
+        }
+    ).execute()
+    # print(json.dumps(data, indent=2))
+    for dm in data["reports"][0]["data"]["rows"]:
+        time_ = dim_to_datetime(*dm["dimensions"])
+        value = dm["metrics"][0]["values"][0]
+        rows.append([
+            profile_id, time_, value
+        ])
+
+    return {
+        "columns": DATA_COLUMNS,
+        "rows": rows
+    }
+
+
+def day_diff(end, start):
+    endd = datetime.date(int(end[:4]), int(end[5:7]), int(end[8:10]))
+    startd = datetime.date(int(start[:4]), int(start[5:7]), int(start[8:10]))
+    return (endd - startd).days
+
+
+def dim_to_datetime(date, hour="00", minute="00"):
+    return "%s-%s-%sT%s:%s" % \
+        (date[:4], date[4:6], date[6:8], hour, minute)
+
+
+def get_qual(quals, op, column, default=None):
+    for q in quals:
+        if q[0] == column and q[1] == op:
+            return q[2]
+    return default
+
+
 def test():
     aurl = authorize_url()
     assert aurl
