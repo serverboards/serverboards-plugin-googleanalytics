@@ -312,7 +312,8 @@ ACCOUNT_COLUMNS = [
 DATA_COLUMNS = [
     "profile_id",
     "datetime",
-    "value"
+    "source", "medium", "keyword",  # dimensions
+    "sessions", "revenue",  # values
 ]
 
 
@@ -374,19 +375,48 @@ def basic_extractor_data(config, quals, columns):
     start = get_qual(quals, ">=", "datetime")[:10]
     end = get_qual(quals, "<=", "datetime")[:10]
 
-    return basic_extractor_data_cacheable(start, end, service_id, profile_id)
+    return basic_extractor_data_cacheable(
+        start, end, service_id, profile_id, columns
+    )
 
 
 @serverboards.cache_ttl(120)
-def basic_extractor_data_cacheable(start, end, service_id, profile_id):
-    analytics = get_analytics(service_id)
+def basic_extractor_data_cacheable(start, end, service_id,
+                                   profile_id, columns):
+    for c in columns:
+        if c not in DATA_COLUMNS:
+            raise Exception("unknown-column %s" % c)
+
+    analytics = get_analytics(service_id, 'v4')
     days = day_diff(end, start)
+    rcolumns = ["profile_id", "datetime"]
 
     extra_dimensions = []
+    datetime_size = 1
     if days <= 3:
-        extra_dimensions = [{"name": 'ga:hour'}]
+        extra_dimensions.append({"name": 'ga:hour'})
+        datetime_size += 1
     if days <= 1:
-        extra_dimensions = [{"name": 'ga:minute'}]
+        extra_dimensions.append({"name": 'ga:minute'})
+        datetime_size += 1
+
+    if 'source' in columns:
+        extra_dimensions.append({"name": "ga:source"})
+        rcolumns.append("source")
+    if 'medium' in columns:
+        extra_dimensions.append({"name": "ga:medium"})
+        rcolumns.append("medium")
+    if 'keyword' in columns:
+        extra_dimensions.append({"name": "ga:keyword"})
+        rcolumns.append("keyword")
+
+    metrics = []
+    if 'sessions' in columns:
+        metrics.append({'expression': 'ga:sessions'})
+        rcolumns.append("sessions")
+    if 'revenue' in columns:
+        metrics.append({'expression': 'ga:transactionRevenue'})
+        rcolumns.append("revenue")
 
     rows = []
     data = analytics.reports().batchGet(
@@ -398,21 +428,22 @@ def basic_extractor_data_cacheable(start, end, service_id, profile_id):
                         'startDate': start,
                         'endDate': end
                     }],
-                    'metrics': [{'expression': 'ga:sessions'}],
+                    'metrics': metrics,
                     'dimensions': [{"name": 'ga:date'}] + extra_dimensions
                 }]
         }
     ).execute()
-    # print(json.dumps(data, indent=2))
+    print(json.dumps(data, indent=2))
     for dm in data["reports"][0]["data"]["rows"]:
-        time_ = dim_to_datetime(*dm["dimensions"])
-        value = dm["metrics"][0]["values"][0]
+        time_ = dim_to_datetime(*(dm["dimensions"][:datetime_size]))
+        dimensions = dm["dimensions"][datetime_size:]
+        values = dm["metrics"][0]["values"]
         rows.append([
-            profile_id, time_, value
+            profile_id, time_, *dimensions, *values
         ])
 
     return {
-        "columns": DATA_COLUMNS,
+        "columns": rcolumns,
         "rows": rows
     }
 
