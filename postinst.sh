@@ -2,5 +2,5 @@
 
 set -e
 
-virtualenv -p /usr/bin/python3 env
+pyvenv env
 env/bin/pip install -r requirements.txt
