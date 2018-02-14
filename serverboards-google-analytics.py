@@ -250,7 +250,7 @@ views_cache = None
 
 @serverboards.rpc_method
 def get_views(service_id=None, **kwargs):
-    # print("Get views of ", service)
+    print("Get views of ", service_id)
     if not service_id:
         return []
     global views_cache
@@ -370,8 +370,12 @@ def basic_extractor_accounts(config, quals, columns):
 
 
 def basic_extractor_data(config, quals, columns):
+    print(config)
     service_id = config["service"]
-    profile_id = get_qual(quals, "=", "profile_id")
+    profile_id = (
+        config.get("config", {}).get("viewid") or
+        get_qual(quals, "=", "profile_id")
+    )
     start = get_qual(quals, ">=", "datetime")[:10]
     end = get_qual(quals, "<=", "datetime")[:10]
 
