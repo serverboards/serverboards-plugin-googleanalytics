@@ -316,11 +316,15 @@ DATA_COLUMNS = [
     "sessions", "revenue",  # values
 ]
 
+RT_COLUMNS = [
+    "medium", "users"
+]
+
 
 @serverboards.rpc_method
 def basic_schema(config, table=None):
     if not table:
-        return ["account", "data"]
+        return ["account", "data", "rt"]
 
     if table == "account":
         return {
@@ -329,6 +333,10 @@ def basic_schema(config, table=None):
     if table == "data":
         return {
             "columns": DATA_COLUMNS
+        }
+    if table == "rt":
+        return {
+            "columns": RT_COLUMNS
         }
     raise Exception("unknown-table")
 
@@ -339,6 +347,8 @@ def basic_extractor(config, table, quals, columns):
         return basic_extractor_accounts(config, quals, columns)
     if table == "data":
         return basic_extractor_data(config, quals, columns)
+    if table == "rt":
+        return rt_extractor(config, quals, columns)
     raise Exception("unknown-table")
 
 
@@ -447,6 +457,40 @@ def basic_extractor_data_cacheable(start, end, service_id,
 
     return {
         "columns": rcolumns,
+        "rows": rows
+    }
+
+
+def rt_extractor(config, quals, columns):
+    service_id = config["service"]
+    profile_id = (
+        config.get("config", {}).get("viewid") or
+        get_qual(quals, "=", "profile_id")
+    )
+    analytics = get_analytics(service_id, 'v3')
+
+    retcols = []
+    dimensions = []
+    if 'medium' in columns:
+        dimensions.append("rt:medium")
+        retcols.append("medium")
+
+    if dimensions:
+        dimensions = ','.join(dimensions)
+    else:
+        dimensions = None
+
+    retcols.append("users")
+
+    res = analytics.data().realtime().get(
+        ids='ga:%s' % profile_id,
+        metrics='rt:activeUsers',
+        dimensions=dimensions).execute()
+    # print(json.dumps(res, indent=2))
+    rows = res.get("rows", [])
+
+    return {
+        "columns": retcols,
         "rows": rows
     }
 
