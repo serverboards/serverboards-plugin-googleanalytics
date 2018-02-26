@@ -1,7 +1,7 @@
 import sys
 
 
-def printc(*s, color=None, hl=None, bg=None, file=sys.stderr):
+def printc(*s, color="grey", hl=None, bg=None, file=sys.stderr):
     """
     Prints some text with some color, using Terminal escape sequences
 
@@ -22,13 +22,15 @@ def printc(*s, color=None, hl=None, bg=None, file=sys.stderr):
         'purple': 35,
         'cyan': 36,
     }
+    if color == "grey":
+        hl = True
     code = colors.get(color)
     text = ' '.join(str(x) for x in s)
     if code:
         hl = 1 if hl else 0
         if bg:
             code += 10
-        file.write("\033[{hl};{color}m{text}\033[1;m\n".format(
+        file.write("\r\033[{hl};{color}m{text}\033[1;m\n".format(
             hl=hl, text=text, color=code))
     else:
         file.write(text + '\n')

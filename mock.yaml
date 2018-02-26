@@ -23,3 +23,6 @@ service.get:
         access_token: ya29.GlxiBR_tbdsClNOWg8zKEEs5aDNnFRQonaoIVq9L-abnUHMsEjpHteAoJZlls64Axd2qSRmzqqwTs6cGGRsg0v_n4YnR5HOFGHmCSyEL_Swdqiq2QtZQydqBe8i1Bw
         _module: oauth2client.client
         _class: OAuth2Credentials
+service.update:
+  - args: "*"
+    response: True

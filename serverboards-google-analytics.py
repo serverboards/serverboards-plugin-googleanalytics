@@ -8,12 +8,12 @@ import sys
 import time
 import datetime
 import curio
+import threading
 
 from serverboards_aio import rpc
 from oauth2client import client
 from urllib.parse import urlencode, urljoin
 from googleapiclient import discovery
-from curio.thread import AWAIT, AsyncThread
 from pcolor import printc
 
 
@@ -33,7 +33,8 @@ class ServerboardsStorage(client.Storage):
         super(ServerboardsStorage, self).__init__()
 
     def locked_get(self):
-        content = serverboards.scall("service.get", self.id).get("config", {})
+        content = (serverboards.async(serverboards.call, "service.get", self.id)
+                   .get("config", {}))
         if not content:
             return None
         try:
@@ -50,10 +51,10 @@ class ServerboardsStorage(client.Storage):
 
     def locked_put(self, credentials):
         data = {"config": json.loads(credentials.to_json())}
-        AWAIT(rpc.call("service.update", self.id, data))
+        serverboards.async(rpc.call, "service.update", self.id, data)
 
     def locked_delete(self):
-        AWAIT(rpc.call("service.update", self.id, {"config": {}}))
+        serverboards.async(rpc.call, "service.update", self.id, {"config": {}})
 
 
 def ensure_settings():
@@ -144,14 +145,16 @@ async def get_analytics(service_id, version='v4'):
     def threaded():
         storage = ServerboardsStorage(service_id)
         credentials = storage.locked_get()
-        return None
         if not credentials:
             return None
         analytics = discovery.build(
             'analytics', version, credentials=credentials)
-        printc("Analytics", analytics)
+        # printc("Analytics", analytics)
         return analytics
-    return await serverboards.sync(threaded)
+    analytics = await serverboards.sync(threaded)
+    # printc("Final analytics: ", analytics)
+    return analytics
+
 
 def date(d, t=0, m=0):
     return time.mktime((int(d[0:4]), int(d[4:6]), int(d[6:8]), int(t), int(m),
@@ -255,7 +258,7 @@ views_cache = None
 
 @serverboards.rpc_method
 async def get_views(service_id=None, **kwargs):
-    printc("Get views of ", service_id)
+    # printc("Get views of ", service_id)
     if not service_id:
         return []
     global views_cache
@@ -348,13 +351,13 @@ def basic_schema(config, table=None):
 
 @serverboards.rpc_method
 async def basic_extractor(config, table, quals, columns):
-    printc("At basic extractor", color="yellow")
+    # printc("At basic extractor", color="yellow")
     if table == "account":
         return await basic_extractor_accounts(config, quals, columns)
     if table == "data":
-        return basic_extractor_data(config, quals, columns)
+        return await basic_extractor_data(config, quals, columns)
     if table == "rt":
-        return rt_extractor(config, quals, columns)
+        return await rt_extractor(config, quals, columns)
     raise Exception("unknown-table")
 
 
@@ -363,7 +366,7 @@ async def basic_extractor_accounts(config, quals, columns):
     service_id = config["service"]
 
     analytics = await get_analytics(service_id, 'v3')
-    printc("Analytics", analytics, color="green")
+    # printc("Analytics", analytics, color="green")
     assert analytics, "Invalid analytics"
     accounts = await serverboards.sync(
         lambda: analytics.management().accountSummaries().list().execute()
@@ -389,8 +392,8 @@ async def basic_extractor_accounts(config, quals, columns):
     }
 
 
-def basic_extractor_data(config, quals, columns):
-    printc(config)
+async def basic_extractor_data(config, quals, columns):
+    # printc(config)
     service_id = config["service"]
     profile_id = (
         config.get("config", {}).get("viewid") or
@@ -399,14 +402,14 @@ def basic_extractor_data(config, quals, columns):
     start = get_qual(quals, ">=", "datetime")[:10]
     end = get_qual(quals, "<=", "datetime")[:10]
 
-    return basic_extractor_data_cacheable(
+    return await basic_extractor_data_cacheable(
         start, end, service_id, profile_id, columns
     )
 
 
 # @serverboards.cache_ttl(120)
 async def basic_extractor_data_cacheable(start, end, service_id,
-                                   profile_id, columns):
+                                         profile_id, columns):
     for c in columns:
         if c not in DATA_COLUMNS:
             raise Exception("unknown-column %s" % c)
@@ -443,20 +446,23 @@ async def basic_extractor_data_cacheable(start, end, service_id,
         rcolumns.append("revenue")
 
     rows = []
-    data = analytics.reports().batchGet(
-        body={
-            'reportRequests': [
-                {
-                    'viewId': profile_id,
-                    'dateRanges': [{
-                        'startDate': start,
-                        'endDate': end
-                    }],
-                    'metrics': metrics,
-                    'dimensions': [{"name": 'ga:date'}] + extra_dimensions
-                }]
-        }
-    ).execute()
+    data = await serverboards.sync(
+        lambda:
+        analytics.reports().batchGet(
+            body={
+                'reportRequests': [
+                    {
+                        'viewId': profile_id,
+                        'dateRanges': [{
+                            'startDate': start,
+                            'endDate': end
+                        }],
+                        'metrics': metrics,
+                        'dimensions': [{"name": 'ga:date'}] + extra_dimensions
+                    }]
+            }
+        ).execute()
+    )
     for dm in data["reports"][0]["data"]["rows"]:
         time_ = dim_to_datetime(*(dm["dimensions"][:datetime_size]))
         dimensions = dm["dimensions"][datetime_size:]
@@ -525,7 +531,7 @@ def get_qual(quals, op, column, default=None):
 
 async def test():
     sys.stdout = sys.stderr
-    from smock import mock_method_async
+    # from smock import mock_method_async
     import yaml
     mock_data = yaml.load(open("mock.yaml"))
     printc("Start tests", color="blue")
@@ -546,24 +552,34 @@ async def test():
         config = {
             "service": "XXX"
         }
-        accounts = await basic_extractor(config, "account", [], ACCOUNT_COLUMNS)
+        printc("Get accounts")
+        accounts = await basic_extractor(
+            config, "account", [], ACCOUNT_COLUMNS)
         printc("acc", accounts, color="blue")
+
+        data = await basic_extractor(
+            config, "data", [("profile_id", "=", "102828992"), ("datetime", ">=", "2017-01-01"), ("datetime", "<=", "2017-01-31")], DATA_COLUMNS)
+        printc("data", data, color="blue")
 
         printc("Success", color="green")
         sys.exit(0)
     except SystemExit:
         raise
+    except curio.TaskCancelled as tc:
+        print(tc)
+        printc("\n\nFailed\n", color="red")
     except Exception:
         printc("\n\nFailed\n", color="red")
         import traceback
         traceback.print_exc()
+        await curio.sleep(1)
 
 
 if __name__ == '__main__':
     if len(sys.argv) == 2 and sys.argv[1] == '--test':
-        serverboards.run_async(test)
+        serverboards.run_async(curio.spawn, test)
         serverboards.rpc.stdin = None
-        serverboards.loop(with_monitor=True)
+        serverboards.loop(debug=curio.debug.schedtrace, with_monitor=True)
         printc("Failed!")
         sys.exit(1)
     else:
