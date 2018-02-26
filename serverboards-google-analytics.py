@@ -1,18 +1,21 @@
 #!env/bin/python3
 
-import serverboards
+import serverboards_aio as serverboards
 import requests
 import math
 import json
 import sys
 import time
 import datetime
-import threading
+import curio
 
-from serverboards import rpc, print
+from serverboards_aio import rpc
 from oauth2client import client
 from urllib.parse import urlencode, urljoin
 from googleapiclient import discovery
+from curio.thread import AWAIT, AsyncThread
+from pcolor import printc
+
 
 # DISCOVERY_URI = ('https://analyticsreporting.googleapis.com/$discovery/rest')
 OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/auth"
@@ -24,14 +27,13 @@ settings = {}
 
 
 class ServerboardsStorage(client.Storage):
-
     def __init__(self, id=None):
         assert id
         self.id = id
-        super(ServerboardsStorage, self).__init__(lock=threading.Lock())
+        super(ServerboardsStorage, self).__init__()
 
     def locked_get(self):
-        content = rpc.call("service.get", self.id).get("config", {})
+        content = serverboards.scall("service.get", self.id).get("config", {})
         if not content:
             return None
         try:
@@ -40,15 +42,18 @@ class ServerboardsStorage(client.Storage):
             credentials.set_store(self)
             return credentials
         except Exception:
+            import traceback
+            traceback.print_exc()
+            printc("Invalid credentials", file=sys.stderr)
             pass
         return None
 
     def locked_put(self, credentials):
         data = {"config": json.loads(credentials.to_json())}
-        rpc.call("service.update", self.id, data)
+        AWAIT(rpc.call("service.update", self.id, data))
 
     def locked_delete(self):
-        rpc.call("service.update", self.id, {"config": {}})
+        AWAIT(rpc.call("service.update", self.id, {"config": {}}))
 
 
 def ensure_settings():
@@ -109,7 +114,7 @@ def store_code(service_id, code):
     js = response.json()
     if 'error' in js:
         raise Exception(js['error_description'])
-    # print(js)
+    # printc(js)
     storage = ServerboardsStorage(service_id)
     credentials = client.OAuth2Credentials(
         access_token=js["access_token"],
@@ -131,22 +136,22 @@ def store_code(service_id, code):
     return "ok"
 
 
-analytics = {}
-
-
-def get_analytics(service_id, version='v4'):
-    if not service_id:
-        return None
-    ank = (service_id, version)
-    if not analytics.get(ank):
+# @serverboards.cache_ttl(60)
+async def get_analytics(service_id, version='v4'):
+    """
+    This method may block as it uses the
+    """
+    def threaded():
         storage = ServerboardsStorage(service_id)
-        credentials = storage.get()
+        credentials = storage.locked_get()
+        return None
         if not credentials:
-            raise Exception("Invalid credentials. Reauthorize.")
-        analytics[ank] = discovery.build(
+            return None
+        analytics = discovery.build(
             'analytics', version, credentials=credentials)
-    return analytics.get(ank)
-
+        printc("Analytics", analytics)
+        return analytics
+    return await serverboards.sync(threaded)
 
 def date(d, t=0, m=0):
     return time.mktime((int(d[0:4]), int(d[4:6]), int(d[6:8]), int(t), int(m),
@@ -172,8 +177,8 @@ def do_clustering(data, start, end, clustering):
 
 
 @serverboards.rpc_method
-def get_data(service_id, view, start, end):
-    analytics = get_analytics(service_id)
+async def get_data(service_id, view, start, end):
+    analytics = await get_analytics(service_id)
     assert analytics, "Could not access to analytics of this service"
 
     # serverboards.debug("%s %s"%(start, end))
@@ -249,14 +254,14 @@ views_cache = None
 
 
 @serverboards.rpc_method
-def get_views(service_id=None, **kwargs):
-    print("Get views of ", service_id)
+async def get_views(service_id=None, **kwargs):
+    printc("Get views of ", service_id)
     if not service_id:
         return []
     global views_cache
     if views_cache:
         return views_cache
-    analytics = get_analytics(service_id, 'v3')
+    analytics = await get_analytics(service_id, 'v3')
     accounts = analytics.management().accountSummaries().list().execute()
     accounts = [
         {
@@ -293,9 +298,9 @@ def check_rules(*_args, **_kwargs):
 
 
 @serverboards.rpc_method
-def analytics_is_up(service):
+async def analytics_is_up(service):
     try:
-        if get_analytics(service["uuid"]):
+        if await get_analytics(service["uuid"]):
             return "ok"
         else:
             return "nok"
@@ -342,9 +347,10 @@ def basic_schema(config, table=None):
 
 
 @serverboards.rpc_method
-def basic_extractor(config, table, quals, columns):
+async def basic_extractor(config, table, quals, columns):
+    printc("At basic extractor", color="yellow")
     if table == "account":
-        return basic_extractor_accounts(config, quals, columns)
+        return await basic_extractor_accounts(config, quals, columns)
     if table == "data":
         return basic_extractor_data(config, quals, columns)
     if table == "rt":
@@ -352,12 +358,16 @@ def basic_extractor(config, table, quals, columns):
     raise Exception("unknown-table")
 
 
-@serverboards.cache_ttl(60)
-def basic_extractor_accounts(config, quals, columns):
+# @serverboards.cache_ttl(60)
+async def basic_extractor_accounts(config, quals, columns):
     service_id = config["service"]
 
-    analytics = get_analytics(service_id, 'v3')
-    accounts = analytics.management().accountSummaries().list().execute()
+    analytics = await get_analytics(service_id, 'v3')
+    printc("Analytics", analytics, color="green")
+    assert analytics, "Invalid analytics"
+    accounts = await serverboards.sync(
+        lambda: analytics.management().accountSummaries().list().execute()
+    )
     rows = [
         [
             account["id"],
@@ -380,7 +390,7 @@ def basic_extractor_accounts(config, quals, columns):
 
 
 def basic_extractor_data(config, quals, columns):
-    print(config)
+    printc(config)
     service_id = config["service"]
     profile_id = (
         config.get("config", {}).get("viewid") or
@@ -394,14 +404,14 @@ def basic_extractor_data(config, quals, columns):
     )
 
 
-@serverboards.cache_ttl(120)
-def basic_extractor_data_cacheable(start, end, service_id,
+# @serverboards.cache_ttl(120)
+async def basic_extractor_data_cacheable(start, end, service_id,
                                    profile_id, columns):
     for c in columns:
         if c not in DATA_COLUMNS:
             raise Exception("unknown-column %s" % c)
 
-    analytics = get_analytics(service_id, 'v4')
+    analytics = await get_analytics(service_id, 'v4')
     days = day_diff(end, start)
     rcolumns = ["profile_id", "datetime"]
 
@@ -461,13 +471,13 @@ def basic_extractor_data_cacheable(start, end, service_id,
     }
 
 
-def rt_extractor(config, quals, columns):
+async def rt_extractor(config, quals, columns):
     service_id = config["service"]
     profile_id = (
         config.get("config", {}).get("viewid") or
         get_qual(quals, "=", "profile_id")
     )
-    analytics = get_analytics(service_id, 'v3')
+    analytics = await get_analytics(service_id, 'v3')
 
     retcols = []
     dimensions = []
@@ -486,7 +496,7 @@ def rt_extractor(config, quals, columns):
         ids='ga:%s' % profile_id,
         metrics='rt:activeUsers',
         dimensions=dimensions).execute()
-    # print(json.dumps(res, indent=2))
+    # printc(json.dumps(res, indent=2))
     rows = res.get("rows", [])
 
     return {
@@ -513,17 +523,48 @@ def get_qual(quals, op, column, default=None):
     return default
 
 
-def test():
-    aurl = authorize_url()
-    assert aurl
-    # analytics = connect_to_analytics()
-    # assert analytics
+async def test():
+    sys.stdout = sys.stderr
+    from smock import mock_method_async
+    import yaml
+    mock_data = yaml.load(open("mock.yaml"))
+    printc("Start tests", color="blue")
 
-    print("Success")
+    serverboards.test_mode(mock_data=mock_data)
+    try:
+
+        tables = basic_schema({})
+        assert tables != []
+
+        data = basic_schema({}, "data")
+        assert data != []
+        data = basic_schema({}, "rt")
+        assert data != []
+        data = basic_schema({}, "account")
+        assert data != []
+
+        config = {
+            "service": "XXX"
+        }
+        accounts = await basic_extractor(config, "account", [], ACCOUNT_COLUMNS)
+        printc("acc", accounts, color="blue")
+
+        printc("Success", color="green")
+        sys.exit(0)
+    except SystemExit:
+        raise
+    except Exception:
+        printc("\n\nFailed\n", color="red")
+        import traceback
+        traceback.print_exc()
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 2 and sys.argv[1] == 'test':
-        test()
+    if len(sys.argv) == 2 and sys.argv[1] == '--test':
+        serverboards.run_async(test)
+        serverboards.rpc.stdin = None
+        serverboards.loop(with_monitor=True)
+        printc("Failed!")
+        sys.exit(1)
     else:
         serverboards.loop()

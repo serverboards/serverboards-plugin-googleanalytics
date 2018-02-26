@@ -1,0 +1,25 @@
+service.get:
+  - args: [XXX]
+    response:
+      name: Analytics
+      config:
+        user_agent: null
+        token_uri: https://accounts.google.com/o/oauth2/token
+        token_response:
+          token_type: Bearer
+          expires_in: 3600
+          access_token: ya29.GlxqBfVM79mNmy1Wxz3pzzRr2Cz_Cj5_L1tqlKA05q9eXFMU_VWqDdN9Wdn6hDmbLSSYVpS6caC4mz16vj2ikgSt40zfRFCGwoDyCzJMV9QqPbg6JNm71pLagbZweg
+        token_info_uri: https://www.googleapis.com/oauth2/v3/tokeninfo
+        token_expiry: "2018-02-22T18:38:32Z"
+        scopes:
+          - https://www.googleapis.com/auth/analytics.readonly
+        revoke_uri: https://accounts.google.com/o/oauth2/token
+        refresh_token: 1/E47VNhFpv9fYbEDRmPEl7GyOQda3HazrFhun6lI8N4upG2bC9beu7ppWw2HLGNdB
+        invalid: false
+        id_token_jwt: null
+        id_token: null
+        client_secret: 6BacR5UWcs07RGJXE9jVxavU
+        client_id: 600143774821-a3m87e8ihur7elbp2u548n1cnv93hdml.apps.googleusercontent.com
+        access_token: ya29.GlxiBR_tbdsClNOWg8zKEEs5aDNnFRQonaoIVq9L-abnUHMsEjpHteAoJZlls64Axd2qSRmzqqwTs6cGGRsg0v_n4YnR5HOFGHmCSyEL_Swdqiq2QtZQydqBe8i1Bw
+        _module: oauth2client.client
+        _class: OAuth2Credentials
