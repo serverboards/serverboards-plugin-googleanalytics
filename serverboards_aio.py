@@ -220,13 +220,6 @@ class RPC:
         return True
 
     def run_async(self, method, *args, result=True, **kwargs):
-        if _debug:
-            # import traceback
-            # traceback.print_stack()
-            try:
-                real_debug("\rrun_async %s\n" % method)
-            except Exception:
-                pass
         q = None
         if self.__running and result:
             q = curio.queue.UniversalQueue()
@@ -235,12 +228,7 @@ class RPC:
             res = q.get()
             q.task_done()
             q.join()
-            try:
-                real_debug("\rrun_async result %s\n" % method)
-            except Exception:
-                pass
             return res
-        real_debug("\rrun_async notresult %s\n" % method)
         return None
 
     async def __run_tasks(self):
