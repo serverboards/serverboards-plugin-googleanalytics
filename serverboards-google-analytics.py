@@ -25,6 +25,11 @@ SCOPES = ['https://www.googleapis.com/auth/analytics.readonly']
 settings = {}
 
 
+@serverboards.cache_ttl(30)
+async def get_config(uuid):
+    return (await serverboards.rpc.call("service.get", uuid)).get("config", {})
+
+
 class ServerboardsStorage(client.Storage):
     def __init__(self, id=None):
         assert id
@@ -33,24 +38,26 @@ class ServerboardsStorage(client.Storage):
 
     def locked_get(self):
         try:
-            content = serverboards.async(
-                serverboards.call, "service.get", self.id
-            ).get("config", {})
+            content = serverboards.async(get_config, self.id)
 
             if not content:
                 return None
+
             content = json.dumps(content)
+            # printc("Auth code:", content)
             credentials = client.OAuth2Credentials.from_json(content)
             credentials.set_store(self)
             return credentials
         except Exception:
             import traceback
             traceback.print_exc()
-            printc("Invalid credentials", file=sys.stderr)
+            # printc("Invalid credentials", file=sys.stderr)
             pass
         return None
 
     def locked_put(self, credentials):
+        get_config.invalidate_cache()
+        # printc("Update refresh token:", credentials.to_json())
         data = {"config": json.loads(credentials.to_json())}
         serverboards.async(rpc.call, "service.update", self.id, data)
 
@@ -83,9 +90,9 @@ async def authorize_url(service=None, **kwargs):
 
     params = {
         "response_type": "code",
-        "client_id": str(settings["client_id"]).strip(),
+        "client_id": settings["client_id"].strip(),
         "redirect_uri": urljoin(
-            str(settings["base_url"]),
+            settings["base_url"],
             "/static/serverboards.google.analytics/auth.html"),
         "scope": 'https://www.googleapis.com/auth/analytics.readonly',
         "state": service_id,
@@ -98,6 +105,7 @@ async def authorize_url(service=None, **kwargs):
 
 @serverboards.rpc_method
 async def store_code(service_id, code):
+    # printc("Store code: ", code)
     await ensure_settings()
 
     """
@@ -105,10 +113,10 @@ async def store_code(service_id, code):
     """
     params = {
         "code": code,
-        "client_id": str(settings["client_id"]).strip(),
-        "client_secret": str(settings["client_secret"]).strip(),
+        "client_id": settings["client_id"].strip(),
+        "client_secret": settings["client_secret"].strip(),
         "redirect_uri": urljoin(
-            str(settings["base_url"]),
+            settings["base_url"],
             "/static/serverboards.google.analytics/auth.html"),
         "grant_type": "authorization_code",
     }
@@ -119,12 +127,12 @@ async def store_code(service_id, code):
     # printc(js)
     storage = ServerboardsStorage(service_id)
     credentials = client.OAuth2Credentials(
-        access_token=str(js["access_token"]),
-        client_id=str(settings["client_id"]).strip(),
-        client_secret=str(settings["client_secret"]).strip(),
-        refresh_token=str(js.get("refresh_token")),
+        access_token=js["access_token"],
+        client_id=settings["client_id"].strip(),
+        client_secret=settings["client_secret"].strip(),
+        refresh_token=js.get("refresh_token"),
         token_expiry=datetime.datetime.utcnow(
-        ) + datetime.timedelta(seconds=int(str(js["expires_in"]))),
+        ) + datetime.timedelta(seconds=int(js["expires_in"])),
         token_uri=OAUTH_AUTH_TOKEN_URL,
         user_agent=None,
         revoke_uri=OAUTH_AUTH_REVOKE_URL,
@@ -133,7 +141,8 @@ async def store_code(service_id, code):
         token_info_uri="https://www.googleapis.com/oauth2/v3/tokeninfo"
     )
     credentials.set_store(storage)
-    serverboards.sync(storage.put, credentials)
+    # printc("Store credentials", credentials)
+    await serverboards.sync(storage.put, credentials)
 
     return "ok"
 
@@ -263,6 +272,8 @@ async def get_views(service_id=None, **kwargs):
     if not service_id:
         return []
     analytics = await get_analytics(service_id, 'v3')
+    if not analytics:
+        raise Exception("Could not connect to analytics")
     accounts = await serverboards.sync(
         lambda:
         analytics.management().accountSummaries().list().execute()
@@ -573,7 +584,11 @@ async def test():
         printc("acc", accounts, color="blue")
 
         data = await basic_extractor(
-            config, "data", [("profile_id", "=", "102828992"), ("datetime", ">=", "2017-01-01"), ("datetime", "<=", "2017-01-31")], DATA_COLUMNS)
+            config, "data", [
+                ("profile_id", "=", "102828992"),
+                ("datetime", ">=", "2017-01-01"),
+                ("datetime", "<=", "2017-01-31")
+            ], DATA_COLUMNS)
         printc("data", data, color="blue")
 
         printc("Success", color="green")
@@ -599,5 +614,5 @@ if __name__ == '__main__':
         printc("Failed!")
         sys.exit(1)
     else:
-        serverboards.set_debug(True)
+        # serverboards.set_debug(True)
         serverboards.loop(with_monitor=True)
