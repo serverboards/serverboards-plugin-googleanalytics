@@ -8,7 +8,6 @@ import sys
 import time
 import datetime
 import curio
-import threading
 
 from serverboards_aio import rpc
 from oauth2client import client
@@ -33,11 +32,13 @@ class ServerboardsStorage(client.Storage):
         super(ServerboardsStorage, self).__init__()
 
     def locked_get(self):
-        content = (serverboards.async(serverboards.call, "service.get", self.id)
-                   .get("config", {}))
-        if not content:
-            return None
         try:
+            content = serverboards.async(
+                serverboards.call, "service.get", self.id
+            ).get("config", {})
+
+            if not content:
+                return None
             content = json.dumps(content)
             credentials = client.OAuth2Credentials.from_json(content)
             credentials.set_store(self)
@@ -57,9 +58,9 @@ class ServerboardsStorage(client.Storage):
         serverboards.async(rpc.call, "service.update", self.id, {"config": {}})
 
 
-def ensure_settings():
+async def ensure_settings():
     if "client_id" not in settings:
-        data = serverboards.rpc.call(
+        data = await serverboards.rpc.call(
             "settings.get", "serverboards.google.analytics/settings")
         if not data:
             raise Exception(
@@ -67,24 +68,24 @@ def ensure_settings():
                  Check system settings.")
         settings.update(data)
 
-        base = serverboards.rpc.call(
+        base = await serverboards.rpc.call(
             "settings.get", "serverboards.core.settings/base",
             {"base_url": "http://localhost:8080"})
         settings.update(base)
 
 
 @serverboards.rpc_method
-def authorize_url(service=None, **kwargs):
+async def authorize_url(service=None, **kwargs):
     if not service:
         return ""
     service_id = service["uuid"]
-    ensure_settings()
+    await ensure_settings()
 
     params = {
         "response_type": "code",
-        "client_id": settings["client_id"].strip(),
+        "client_id": str(settings["client_id"]).strip(),
         "redirect_uri": urljoin(
-            settings["base_url"],
+            str(settings["base_url"]),
             "/static/serverboards.google.analytics/auth.html"),
         "scope": 'https://www.googleapis.com/auth/analytics.readonly',
         "state": service_id,
@@ -96,34 +97,34 @@ def authorize_url(service=None, **kwargs):
 
 
 @serverboards.rpc_method
-def store_code(service_id, code):
-    ensure_settings()
+async def store_code(service_id, code):
+    await ensure_settings()
 
     """
     Stores the code and get a refresh token and a access token
     """
     params = {
         "code": code,
-        "client_id": settings["client_id"].strip(),
-        "client_secret": settings["client_secret"].strip(),
+        "client_id": str(settings["client_id"]).strip(),
+        "client_secret": str(settings["client_secret"]).strip(),
         "redirect_uri": urljoin(
-            settings["base_url"],
+            str(settings["base_url"]),
             "/static/serverboards.google.analytics/auth.html"),
         "grant_type": "authorization_code",
     }
     response = requests.post(OAUTH_AUTH_TOKEN_URL, params)
-    js = response.json()
+    js = dict(response.json())
     if 'error' in js:
         raise Exception(js['error_description'])
     # printc(js)
     storage = ServerboardsStorage(service_id)
     credentials = client.OAuth2Credentials(
-        access_token=js["access_token"],
-        client_id=settings["client_id"].strip(),
-        client_secret=settings["client_secret"].strip(),
-        refresh_token=js.get("refresh_token"),
+        access_token=str(js["access_token"]),
+        client_id=str(settings["client_id"]).strip(),
+        client_secret=str(settings["client_secret"]).strip(),
+        refresh_token=str(js.get("refresh_token")),
         token_expiry=datetime.datetime.utcnow(
-        ) + datetime.timedelta(seconds=int(js["expires_in"])),
+        ) + datetime.timedelta(seconds=int(str(js["expires_in"]))),
         token_uri=OAUTH_AUTH_TOKEN_URL,
         user_agent=None,
         revoke_uri=OAUTH_AUTH_REVOKE_URL,
@@ -132,7 +133,7 @@ def store_code(service_id, code):
         token_info_uri="https://www.googleapis.com/oauth2/v3/tokeninfo"
     )
     credentials.set_store(storage)
-    storage.put(credentials)
+    serverboards.sync(storage.put, credentials)
 
     return "ok"
 
@@ -209,20 +210,23 @@ async def get_data(service_id, view, start, end):
     # serverboards.debug("hour filtered %s %s %s %s" %
     #                 (hour_filter,filter_range, extra_dimensions, clustering))
 
-    data = analytics.reports().batchGet(
-        body={
-            'reportRequests': [
-                {
-                    'viewId': view,
-                    'dateRanges': [{
-                        'startDate': start[0:10],
-                        'endDate': end[0:10]
-                    }],
-                    'metrics': [{'expression': 'ga:sessions'}],
-                    'dimensions': [{"name": 'ga:date'}] + extra_dimensions
-                }]
-        }
-    ).execute()
+    data = await serverboards.sync(
+        lambda:
+        analytics.reports().batchGet(
+            body={
+                'reportRequests': [
+                    {
+                        'viewId': view,
+                        'dateRanges': [{
+                            'startDate': start[0:10],
+                            'endDate': end[0:10]
+                        }],
+                        'metrics': [{'expression': 'ga:sessions'}],
+                        'dimensions': [{"name": 'ga:date'}] + extra_dimensions
+                    }]
+            }
+        ).execute()
+    )
 
     def decorate(datum):
         d = date(*datum['dimensions'])
@@ -253,19 +257,17 @@ def get_view_name(service_id, viewid):
         raise Exception("View not found")
 
 
-views_cache = None
-
-
 @serverboards.rpc_method
 async def get_views(service_id=None, **kwargs):
-    # printc("Get views of ", service_id)
+    printc("Get views of ", service_id, kwargs)
     if not service_id:
         return []
-    global views_cache
-    if views_cache:
-        return views_cache
     analytics = await get_analytics(service_id, 'v3')
-    accounts = analytics.management().accountSummaries().list().execute()
+    accounts = await serverboards.sync(
+        lambda:
+        analytics.management().accountSummaries().list().execute()
+    )
+    printc("Have accounts", accounts)
     accounts = [
         {
             "name": "%s - %s" % (p['name'], pp['name']),
@@ -275,8 +277,9 @@ async def get_views(service_id=None, **kwargs):
         for p in a['webProperties']
         for pp in p['profiles']
     ]
+    printc("Rework accounts ", accounts)
     accounts.sort(key=lambda ac: ac['name'])
-    views_cache = accounts
+    printc("Sorted accounts ", accounts)
     return accounts
 
 
@@ -498,10 +501,14 @@ async def rt_extractor(config, quals, columns):
 
     retcols.append("users")
 
-    res = analytics.data().realtime().get(
-        ids='ga:%s' % profile_id,
-        metrics='rt:activeUsers',
-        dimensions=dimensions).execute()
+    res = await serverboards.sync(
+        lambda:
+        analytics.data().realtime().get(
+            ids='ga:%s' % profile_id,
+            metrics='rt:activeUsers',
+            dimensions=dimensions).execute()
+    )
+
     # printc(json.dumps(res, indent=2))
     rows = res.get("rows", [])
 
@@ -531,13 +538,21 @@ def get_qual(quals, op, column, default=None):
 
 async def test():
     sys.stdout = sys.stderr
-    # from smock import mock_method_async
+    from smock import mock_method
     import yaml
+    from googleapiclient import http
     mock_data = yaml.load(open("mock.yaml"))
+    requests.post = mock_method("requests.post", mock_data)
+    http._retry_request = mock_method("_retry_request", mock_data)
     printc("Start tests", color="blue")
 
     serverboards.test_mode(mock_data=mock_data)
     try:
+
+        url = await authorize_url({"uuid": "XXX"})
+        printc("URL to authorize is ", url)
+
+        await store_code("XXX", "YYY")
 
         tables = basic_schema({})
         assert tables != []
@@ -568,19 +583,21 @@ async def test():
     except curio.TaskCancelled as tc:
         print(tc)
         printc("\n\nFailed\n", color="red")
+        serverboards.stop()
     except Exception:
         printc("\n\nFailed\n", color="red")
         import traceback
         traceback.print_exc()
-        await curio.sleep(1)
+        await serverboards.rpc.stop()
 
 
 if __name__ == '__main__':
     if len(sys.argv) == 2 and sys.argv[1] == '--test':
         serverboards.run_async(curio.spawn, test)
         serverboards.rpc.stdin = None
-        serverboards.loop(debug=curio.debug.schedtrace, with_monitor=True)
+        serverboards.loop(with_monitor=True)
         printc("Failed!")
         sys.exit(1)
     else:
-        serverboards.loop()
+        serverboards.set_debug(True)
+        serverboards.loop(with_monitor=True)

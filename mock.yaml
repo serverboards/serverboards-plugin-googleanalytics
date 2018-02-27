@@ -26,3 +26,26 @@ service.get:
 service.update:
   - args: "*"
     response: True
+settings.get:
+  - args: ["serverboards.google.analytics/settings"]
+    response:
+      client_id: CLIENTID
+      client_secret: CLIENTSECRET
+  - args:
+      - "serverboards.core.settings/base"
+      - {"base_url": "http://localhost:8080"}
+    response:
+      base_url: http://localhost:8080
+requests.post:
+  - args:
+    - https://accounts.google.com/o/oauth2/token
+    - code: "YYY"
+      client_id: "CLIENTID"
+      client_secret: "CLIENTSECRET"
+      redirect_uri: "http://localhost:8080/static/serverboards.google.analytics/auth.html"
+      grant_type: "authorization_code"
+    response:
+      json:
+        access_token: ZZZ
+        expires_in: 300
+_retry_request: []
