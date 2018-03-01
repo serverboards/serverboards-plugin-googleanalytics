@@ -111,6 +111,7 @@ class RPC:
             if id:
                 await self.__send({"result": res, "id": id})
         except Exception as e:
+            log_traceback()
             if id:
                 await self.__send({"error": str(e), "id": id})
         finally:
@@ -182,6 +183,8 @@ class RPC:
             real_debug("Unexpected exception", e)
             import traceback
             traceback.print_exc()
+        finally:
+            await curio.timeout_after(2, self.stop)
 
     async def subscribe(self, eventname, callback):
         """
@@ -484,6 +487,7 @@ def log_traceback(exc=None):
     import traceback
     if exc:
         run_async(error, "Got exception: %s" % exc, level=1, result=False)
+    traceback.print_exc(file=sys.stderr)
     traceback.print_exc(file=error_sync)
 
 

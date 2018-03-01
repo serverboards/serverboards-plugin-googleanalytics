@@ -335,7 +335,7 @@ DATA_COLUMNS = [
     "profile_id",
     "datetime",
     "source", "medium", "keyword",  # dimensions
-    "sessions", "revenue",  # values
+    "sessions", "revenue", "transactions"  # values
 ]
 
 RT_COLUMNS = [
@@ -421,6 +421,7 @@ async def basic_extractor_data(config, quals, columns):
     )
 
 
+# Column names at Ga are listed at https://developers.google.com/analytics/devguides/reporting/core/dimsmets
 # @serverboards.cache_ttl(120)
 async def basic_extractor_data_cacheable(start, end, service_id,
                                          profile_id, columns):
@@ -458,23 +459,27 @@ async def basic_extractor_data_cacheable(start, end, service_id,
     if 'revenue' in columns:
         metrics.append({'expression': 'ga:transactionRevenue'})
         rcolumns.append("revenue")
+    if 'transactions' in columns:
+        metrics.append({'expression': 'ga:transactions'})
+        rcolumns.append("transactions")
 
     rows = []
+    body = {
+        'reportRequests': [
+            {
+                'viewId': profile_id,
+                'dateRanges': [{
+                    'startDate': start,
+                    'endDate': end
+                }],
+                'metrics': metrics,
+                'dimensions': [{"name": 'ga:date'}] + extra_dimensions
+            }]
+    }
     data = await serverboards.sync(
         lambda:
         analytics.reports().batchGet(
-            body={
-                'reportRequests': [
-                    {
-                        'viewId': profile_id,
-                        'dateRanges': [{
-                            'startDate': start,
-                            'endDate': end
-                        }],
-                        'metrics': metrics,
-                        'dimensions': [{"name": 'ga:date'}] + extra_dimensions
-                    }]
-            }
+            body=body
         ).execute()
     )
     for dm in data["reports"][0]["data"]["rows"]:
