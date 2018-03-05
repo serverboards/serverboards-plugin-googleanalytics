@@ -9,7 +9,7 @@ import time
 import datetime
 import curio
 
-from serverboards_aio import rpc
+from serverboards_aio import rpc, print
 from oauth2client import client
 from urllib.parse import urlencode, urljoin
 from googleapiclient import discovery
@@ -27,7 +27,8 @@ settings = {}
 
 @serverboards.cache_ttl(30)
 async def get_config(uuid):
-    return (await serverboards.rpc.call("service.get", uuid)).get("config", {})
+    service = await serverboards.rpc.call("service.get", uuid)
+    return service.get("config", {})
 
 
 class ServerboardsStorage(client.Storage):
@@ -62,6 +63,7 @@ class ServerboardsStorage(client.Storage):
         serverboards.async(rpc.call, "service.update", self.id, data)
 
     def locked_delete(self):
+        get_config.invalidate_cache()
         serverboards.async(rpc.call, "service.update", self.id, {"config": {}})
 
 
@@ -152,6 +154,8 @@ async def get_analytics(service_id, version='v4'):
     """
     This method may block as it uses the
     """
+    # printc("Get analytics", service_id)
+
     def threaded():
         storage = ServerboardsStorage(service_id)
         credentials = storage.locked_get()
@@ -159,10 +163,8 @@ async def get_analytics(service_id, version='v4'):
             return None
         analytics = discovery.build(
             'analytics', version, credentials=credentials)
-        # printc("Analytics", analytics)
         return analytics
     analytics = await serverboards.sync(threaded)
-    # printc("Final analytics: ", analytics)
     return analytics
 
 
@@ -268,7 +270,6 @@ def get_view_name(service_id, viewid):
 
 @serverboards.rpc_method
 async def get_views(service_id=None, **kwargs):
-    printc("Get views of ", service_id, kwargs)
     if not service_id:
         return []
     analytics = await get_analytics(service_id, 'v3')
@@ -278,7 +279,6 @@ async def get_views(service_id=None, **kwargs):
         lambda:
         analytics.management().accountSummaries().list().execute()
     )
-    printc("Have accounts", accounts)
     accounts = [
         {
             "name": "%s - %s" % (p['name'], pp['name']),
@@ -288,9 +288,7 @@ async def get_views(service_id=None, **kwargs):
         for p in a['webProperties']
         for pp in p['profiles']
     ]
-    printc("Rework accounts ", accounts)
     accounts.sort(key=lambda ac: ac['name'])
-    printc("Sorted accounts ", accounts)
     return accounts
 
 
@@ -365,7 +363,7 @@ def basic_schema(config, table=None):
 
 @serverboards.rpc_method
 async def basic_extractor(config, table, quals, columns):
-    # printc("At basic extractor", color="yellow")
+    print("At basic extractor", table)
     if table == "account":
         return await basic_extractor_accounts(config, quals, columns)
     if table == "data":
@@ -503,6 +501,8 @@ async def rt_extractor(config, quals, columns):
         get_qual(quals, "=", "profile_id")
     )
     analytics = await get_analytics(service_id, 'v3')
+    if not analytics:
+        raise Exception("invalid analytics object")
 
     retcols = []
     dimensions = []
