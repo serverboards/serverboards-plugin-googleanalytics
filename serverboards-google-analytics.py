@@ -411,8 +411,13 @@ async def basic_extractor_data(config, quals, columns):
         config.get("config", {}).get("viewid") or
         get_qual(quals, "=", "profile_id")
     )
-    start = get_qual(quals, ">=", "datetime")[:10]
-    end = get_qual(quals, "<=", "datetime")[:10]
+    try:
+        start = get_qual(quals, ">=", "datetime")[:10]
+        end = get_qual(quals, "<=", "datetime")[:10]
+    except Exception:
+        raise Exception(
+            "Required `datetime >= '...' AND datetime <= '...'`, got %s"
+            % quals)
 
     return await basic_extractor_data_cacheable(
         start, end, service_id, profile_id, columns
@@ -480,7 +485,9 @@ async def basic_extractor_data_cacheable(start, end, service_id,
             body=body
         ).execute()
     )
-    for dm in data["reports"][0]["data"]["rows"]:
+
+    data_rows = data["reports"][0]["data"].get("rows", [])
+    for dm in data_rows:
         time_ = dim_to_datetime(*(dm["dimensions"][:datetime_size]))
         dimensions = dm["dimensions"][datetime_size:]
         values = dm["metrics"][0]["values"]

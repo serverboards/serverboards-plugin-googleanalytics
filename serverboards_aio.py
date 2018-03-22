@@ -2,6 +2,7 @@ import sys
 import os
 import json
 import time
+import traceback
 # from contextlib import contextmanager
 sys.path.append(os.path.join(os.path.dirname(__file__),
                 'env/lib64/python3.6/site-packages/'))
@@ -11,6 +12,7 @@ import curio
 
 
 _debug = False
+_log_errors = False
 plugin_id = os.environ.get("PLUGIN_ID")
 real_print = print
 RED = "\033[0;31m"
@@ -118,6 +120,8 @@ class RPC:
             if id:
                 await self.__send({"result": res, "id": id})
         except Exception as e:
+            if _debug or _log_errors:
+                traceback.print_exc(file=sys.stderr)
             if id:
                 await self.__send({"error": str(e), "id": id})
         finally:
@@ -502,7 +506,6 @@ def log_traceback(exc=None):
     """
     Logs the given traceback to the error log.
     """
-    import traceback
     if exc:
         run_async(error, "Got exception: %s" % exc, level=1, result=False)
     traceback.print_exc(file=error_sync)
@@ -525,16 +528,20 @@ def test_mode(test_function, mock_data={}):
             params = req["params"]
             if not id:
                 if method == 'log.error':
-                    real_print(RED, "ERROR: ", params[0], GREY, *params[1:], RESET)
+                    real_print(
+                        RED, "ERROR: ", params[0], GREY, *params[1:], RESET)
                     return
                 if method == 'log.info':
-                    real_print(BLUE, "INFO: ", params[0], GREY, *params[1:], RESET)
+                    real_print(
+                        BLUE, "INFO: ", params[0], GREY, *params[1:], RESET)
                     return
                 if method == 'log.debug':
-                    real_print(BLUE, "DEBUG: ", params[0], GREY, *params[1:], RESET)
+                    real_print(
+                        BLUE, "DEBUG: ", params[0], GREY, *params[1:], RESET)
                     return
                 if method == 'log.warning':
-                    real_print(BLUE, "WARNING: ", params[0], GREY, *params[1:], RESET)
+                    real_print(
+                        BLUE, "WARNING: ", params[0], GREY, *params[1:], RESET)
                     return
                 print(">>>", method, params)
                 return
@@ -555,7 +562,6 @@ def test_mode(test_function, mock_data={}):
                 await rpc._RPC__parse_request(resp)
             except Exception as e:
                 await error("Error (%s) mocking call: %s" % (e, req))
-                import traceback
                 traceback.print_exc()
                 resp = {
                     "error": str(e),
@@ -593,9 +599,20 @@ def run_async(method, *args, **kwargs):
     return rpc.run_async(method, *args, **kwargs)
 
 
-def set_debug(on=True):
-    global _debug
-    _debug = on
+def set_debug(on=None, log_errors=None):
+    """
+    Set debug mode.
+
+    If no args are given, it enables debug mode. It can also receive
+    `log_errors = True` to only log tracebacks of failing functions.
+    """
+    global _debug, _log_errors
+    if on is None and log_errors is None:
+        _debug = True
+    if on is not None:
+        _debug = on
+    if log_errors is not None:
+        _log_errors = log_errors
 
 
 class RPCWrapper:
