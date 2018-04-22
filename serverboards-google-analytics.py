@@ -480,7 +480,7 @@ async def basic_extractor_data_cacheable(start, end, service_id,
             body=body
         ).execute()
     )
-    for dm in data["reports"][0]["data"]["rows"]:
+    for dm in data["reports"][0]["data"].get("rows", []):
         time_ = dim_to_datetime(*(dm["dimensions"][:datetime_size]))
         dimensions = dm["dimensions"][datetime_size:]
         values = dm["metrics"][0]["values"]
