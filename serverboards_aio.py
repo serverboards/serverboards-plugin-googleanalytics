@@ -3,6 +3,7 @@ import os
 import json
 import time
 import traceback
+import datetime
 # from contextlib import contextmanager
 sys.path.append(os.path.join(os.path.dirname(__file__),
                 'env/lib64/python3.6/site-packages/'))
@@ -12,7 +13,6 @@ import curio
 
 
 _debug = False
-_log_errors = True
 plugin_id = os.environ.get("PLUGIN_ID")
 real_print = print
 RED = "\033[0;31m"
@@ -25,7 +25,8 @@ def real_debug(*msg):
     if not _debug:
         return
     try:
-        real_print("\r", *msg, file=sys.stderr)
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S ")
+        real_print("\r", now, *msg, file=_debug)
     except Exception:
         pass
 
@@ -78,8 +79,12 @@ class RPC:
         jss = json.dumps(js)
         if _debug:
             real_debug(">>> %s" % jss)
-        await self.stdout.write(jss + "\n")
-        await self.stdout.flush()
+        try:
+            await self.stdout.write(jss + "\n")
+            await self.stdout.flush()
+        except Exception as e:
+            real_print(RED, "Broken pipe: ", e, RESET)
+            await self.stop()
 
     async def __parse_request(self, req):
         method = req.get("method")
@@ -100,6 +105,15 @@ class RPC:
             raise Exception("unknown-request")
 
     async def __parse_call(self, id, method, params):
+        # looks more like an event, try call callbacks
+        if not id and method in self.__subscriptions:
+            for f in self.__subscriptions[method]:
+                if isinstance(params, list):
+                    self.run_async(f, *params, result=False)
+                else:
+                    self.run_async(f, **params, result=False)
+            return
+
         try:
             self.__running_calls.append(method)
             fn = self.__methods.get(method)
@@ -120,8 +134,7 @@ class RPC:
             if id:
                 await self.__send({"result": res, "id": id})
         except Exception as e:
-            if _debug or _log_errors:
-                traceback.print_exc(file=sys.stderr)
+            log_traceback(e)
             if id:
                 await self.__send({"error": str(e), "id": id})
         finally:
@@ -169,7 +182,7 @@ class RPC:
                 line = line.strip()
                 if _debug:
                     try:
-                        real_debug("\r<<< %s\n" % line)
+                        real_debug("<<< %s\n" % line)
                     except Exception:
                         pass
                 if line.startswith('# wait'):  # special command!
@@ -208,7 +221,7 @@ class RPC:
         event = eventname.split('[', 1)[0]
         id = self.__subscription_id
         self.__subscription_id += 1
-        subs = self.__subscriptions.get(event, []).concat(callback)
+        subs = self.__subscriptions.get(event, []) + [callback]
         self.__subscriptions[event] = subs
         self.__subscriptions_by_id[id] = (event, callback)
 
@@ -234,6 +247,8 @@ class RPC:
 
     def run_async(self, method, *args, result=True, **kwargs):
         q = None
+        if not self.__running and result:
+            raise Exception("not-running")
         if self.__running and result:
             q = curio.queue.UniversalQueue()
         self.__run_queue.put((method, args, kwargs, q))
@@ -264,16 +279,19 @@ class RPC:
                 except BrokenPipeError as e:
                     real_debug(
                         RED, "Exception at task %s: %s" % (method, e), RESET)
+                    log_traceback(e)
                     return  # finished! Normally write to closed stdout
                 except curio.TaskCancelled as e:
                     real_debug(
                         RED, "Exception at task %s: %s" % (method, e), RESET)
+                    log_traceback(e)
                     return
                 except Exception as e:
                     real_debug(
                         RED, "Exception at task %s: %s" % (method, e), RESET)
                     if q:
                         await q.put(e)
+                    log_traceback(e)
                 except SystemExit as e:
                     # real_debug(RED, "exit %s: %s" % (method, e), RESET)
                     await curio.spawn(self.stop)
@@ -338,14 +356,14 @@ def __simple_hash__(*args, **kwargs):
     return hash(hs)
 
 
-def cache_ttl(ttl=10, maxsize=50, hashf=__simple_hash__):
+def cache_ttl(ttl=10, max_size=50, hashf=__simple_hash__):
     """
     Simple decorator, not very efficient, for a time based cache.
 
     Params:
         ttl -- seconds this entry may live. After this time, next use is
                evicted.
-        maxsize -- If trying to add more than maxsize elements, older will be
+        max_size -- If trying to add more than max_size elements, older will be
                    evicted.
         hashf -- Hash function for the arguments. Defaults to same data as
                  keys, but may require customization.
@@ -356,14 +374,14 @@ def cache_ttl(ttl=10, maxsize=50, hashf=__simple_hash__):
         async def wrapped(*args, **kwargs):
             nonlocal data
             currentt = time.time()
-            if len(data) >= maxsize:
+            if len(data) >= max_size:
                 # first take out all expired
                 data = {
                     k: (timeout, v)
                     for k, (timeout, v) in data.items()
                     if timeout > currentt
                 }
-                if len(data) >= maxsize:
+                while len(data) >= max_size:
                     # not enough, expire oldest
                     oldest_k = None
                     oldest_t = currentt + ttl
@@ -373,7 +391,7 @@ def cache_ttl(ttl=10, maxsize=50, hashf=__simple_hash__):
                             oldest_t = timeout
 
                     del data[oldest_k]
-            assert len(data) < maxsize
+            assert len(data) < max_size
 
             if not args and not kwargs:
                 hs = None
@@ -558,10 +576,13 @@ def test_mode(test_function, mock_data={}):
                     "result": res,
                     "id": req.get("id")
                 }
-                print("<<<", json.dumps(res._MockWrapper__data, indent=2))
+                if isinstance(res, (int, str)):
+                    print("<<<", json.dumps(res, indent=2))
+                else:
+                    print("<<<", json.dumps(res._MockWrapper__data, indent=2))
                 await rpc._RPC__parse_request(resp)
             except Exception as e:
-                await error("Error (%s) mocking call: %s" % (e, req))
+                await error("Error (%s) mocking call: %s" % (e, repr(req)))
                 traceback.print_exc()
                 resp = {
                     "error": str(e),
@@ -587,7 +608,7 @@ def test_mode(test_function, mock_data={}):
             traceback.print_exc(file=sys.stderr)
         sys.exit(exit_code)
 
-    run_async(exit_wrapped)
+    run_async(exit_wrapped, result=False)
     set_debug(True)
     loop(with_monitor=True)
 
@@ -610,20 +631,18 @@ def run_async(method, *args, **kwargs):
     return rpc.run_async(method, *args, **kwargs)
 
 
-def set_debug(on=None, log_errors=None):
+def set_debug(on=True):
     """
     Set debug mode.
 
-    If no args are given, it enables debug mode. It can also receive
-    `log_errors = True` to only log tracebacks of failing functions.
+    If no args are given, it enables debug mode.
     """
-    global _debug, _log_errors
-    if on is None and log_errors is None:
-        _debug = True
-    if on is not None:
-        _debug = on
-    if log_errors is not None:
-        _log_errors = log_errors
+    global _debug
+    if isinstance(on, str):
+        real_print("\r\n", GREY, "Debug ", plugin_id, "to", on, RESET, "\r\n", file=sys.stderr)
+        _debug = open(on, 'wt')
+    else:
+        _debug = sys.stderr
 
 
 class RPCWrapper:
@@ -713,3 +732,90 @@ def async(f, *args, **kwargs):
     if isinstance(ret, Exception):
         raise ret
     return ret
+
+
+class Plugin:
+    """
+    Wraps a plugin to easily call the methods in it.
+
+    It has no recovery in it.
+
+    Can specify to ensure it is dead (kill_and_restart=True) before use. This
+    is only useful at tests.
+    """
+    class Method:
+        def __init__(self, plugin, method):
+            self.plugin = plugin
+            self.method = method
+
+        async def __call__(self, *args, **kwargs):
+            return await self.plugin.call(self.method, *args, **kwargs)
+
+    def __init__(self, plugin_id, restart=True):
+        self.plugin_id = plugin_id
+        self.restart = restart
+        self.uuid = None
+
+    def __getattr__(self, method):
+        return Plugin.Method(self, method)
+
+    async def start(self):
+        self.uuid = await rpc.call("plugin.start", self.plugin_id)
+        return self
+
+    async def stop(self):
+        """
+        Stops the plugin.
+        """
+        if not self.uuid:  # not running
+            return self
+        await rpc.call("plugin.stop", self.uuid)
+        self.uuid = None
+        return self
+
+    RETRY_EVENTS = ["exit", "unknown_plugin at plugin.call", "unknown_plugin"]
+
+    async def call(self, method, *args, **kwargs):
+        """
+        Call a method by name.
+
+        This is also a workaround calling methods called `call` and `stop`.
+        """
+        if not self.uuid:
+            await self.call_retry(method, *args, **kwargs)
+        try:
+            return await rpc.call(
+                "plugin.call",
+                self.uuid,
+                method,
+                args or kwargs,
+            )
+        except Exception as e:
+            # if exited or plugin call returns unknown method (refered to the
+            # method to call at the plugin), restart and try again.
+            if (str(e) in Plugin.RETRY_EVENTS) and self.restart:
+                await debug("Restarting plugin", self.plugin_id)
+                await self.call_retry(method, *args, **kwargs)
+            else:
+                raise
+
+    async def call_retry(self, method, *args, **kwargs):
+        # if error because exitted, and may restart,
+        # restart and try again (no loop)
+        await self.start()
+        return await rpc.call(
+            "plugin.call",
+            self.uuid,
+            method,
+            args or kwargs
+        )
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, _type, _value, _traceback):
+        try:
+            await self.stop()
+        except Exception as ex:
+            if str(ex) != "cant_stop at plugin.stop":
+                raise
