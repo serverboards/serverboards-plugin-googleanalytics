@@ -333,7 +333,8 @@ DATA_COLUMNS = [
     "profile_id",
     "datetime",
     "source", "medium", "keyword",  # dimensions
-    "sessions", "revenue", "transactions", "page"  # values
+    "sessions", "revenue", "transactions", "page",  # values
+    "duration", "bounces"
 ]
 
 RT_COLUMNS = [
@@ -468,6 +469,12 @@ async def basic_extractor_data_cacheable(start, end, service_id,
     if 'transactions' in columns:
         metrics.append({'expression': 'ga:transactions'})
         rcolumns.append("transactions")
+    if 'duration' in columns:
+        metrics.append({'expression': 'ga:sessionDuration'})
+        rcolumns.append("duration")
+    if 'bounces' in columns:
+        metrics.append({'expression': 'ga:bounces'})
+        rcolumns.append("bounces")
 
     rows = []
     body = {
