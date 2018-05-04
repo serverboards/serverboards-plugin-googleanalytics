@@ -334,7 +334,7 @@ DATA_COLUMNS = [
     "datetime",
     "source", "medium", "keyword",  # dimensions
     "sessions", "revenue", "transactions", "page",  # values
-    "duration", "bounces"
+    "duration", "bounces", "campaign"
 ]
 
 RT_COLUMNS = [
@@ -458,6 +458,9 @@ async def basic_extractor_data_cacheable(start, end, service_id,
     if 'page' in columns:
         extra_dimensions.append({'name': 'ga:pagePath'})
         rcolumns.append("page")
+    if 'campaign' in columns:
+        extra_dimensions.append({'name': 'ga:campaign'})
+        rcolumns.append("campaign")
 
     metrics = []
     if 'sessions' in columns:

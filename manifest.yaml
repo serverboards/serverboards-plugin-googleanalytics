@@ -83,27 +83,6 @@ components:
       - name: client_secret
         label: Client Secret
 
-  - id: widget-bars
-    type: widget
-    name: Google Analytics // Bars
-    traits: google.analytics
-    params:
-      - id: analytics
-        name: service
-        type: service
-        traits: google.analytics
-        label: Related Analytics Service
-      - name: viewid
-        label: Property
-        type: select call
-        dynamic: true
-        options:
-          command: serverboards.google.analytics/daemon
-          call: get_views
-          params:
-            - name: service
-
-
   - id: trigger
     type: trigger
     name: Google Analytics
