@@ -364,7 +364,6 @@ def basic_schema(config, table=None):
 
 @serverboards.rpc_method
 async def basic_extractor(config, table, quals, columns):
-    print("At basic extractor", table)
     if table == "account":
         return await basic_extractor_accounts(config, quals, columns)
     if table == "data":
