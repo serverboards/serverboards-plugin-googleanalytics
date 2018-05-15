@@ -640,4 +640,4 @@ if __name__ == '__main__':
         sys.exit(1)
     else:
         # serverboards.set_debug(True)
-        serverboards.loop(with_monitor=True)
+        serverboards.loop()
