@@ -12,7 +12,9 @@ components:
     type: cmd
     command: serverboards-google-analytics.py
     strategy: singleton
-    timeout: 5m
+    # timeout: 5m
+    timeout: 5s
+
     perms:
       - settings.view[serverboards.google.analytics/settings]
       - settings.view[serverboards.core.settings/base]
@@ -20,6 +22,7 @@ components:
       - rules.trigger
       - service.update
       - service.get
+      - event.emit
 
   - id: service
     type: service
@@ -32,23 +35,20 @@ components:
       - name: access_description
         type: description
         description: |
-          {{#authorization_url}}
           Please click on the following URL to start the authorization process.
 
           [Authorize Serverboards to access Analytics Data]({{authorization_url}})
 
           If already authorized, clicking on the URL will renew/refresh the
           authorization, discarding the old one.
-          {{/authorization_url}}
-          {{^authorization_url}}
-
-          Please save the service to start the authorization process.
-
-          {{/authorization_url}}
         vars:
           - id: authorization_url
             command: serverboards.google.analytics/daemon
             call: authorize_url
+      - name: access_token
+        type: hidden
+        required: true
+        subscribe: serverboards.google.analytics/token
     status:
       command: serverboards.google.analytics/daemon
       call: analytics_is_up

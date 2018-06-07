@@ -39,13 +39,14 @@ class ServerboardsStorage(client.Storage):
 
     def locked_get(self):
         try:
-            content = serverboards.async(get_config, self.id)
+            content = serverboards.\
+                async(get_config, self.id).\
+                get('access_token')
 
             if not content:
                 return None
 
-            content = json.dumps(content)
-            # printc("Auth code:", content)
+            printc("Auth code:", repr(content))
             credentials = client.OAuth2Credentials.from_json(content)
             credentials.set_store(self)
             return credentials
@@ -84,10 +85,9 @@ async def ensure_settings():
 
 
 @serverboards.rpc_method
-async def authorize_url(service=None, **kwargs):
-    if not service:
+async def authorize_url(form_id=None, **kwargs):
+    if not form_id:
         return ""
-    service_id = service["uuid"]
     await ensure_settings()
 
     params = {
@@ -97,7 +97,7 @@ async def authorize_url(service=None, **kwargs):
             settings["base_url"],
             "/static/serverboards.google.analytics/auth.html"),
         "scope": 'https://www.googleapis.com/auth/analytics.readonly',
-        "state": service_id,
+        "state": form_id,
         "access_type": "offline",
         "approval_prompt": "force"
     }
@@ -106,7 +106,7 @@ async def authorize_url(service=None, **kwargs):
 
 
 @serverboards.rpc_method
-async def store_code(service_id, code):
+async def store_code(form_id, code):
     # printc("Store code: ", code)
     await ensure_settings()
 
@@ -127,14 +127,16 @@ async def store_code(service_id, code):
     if 'error' in js:
         raise Exception(js['error_description'])
     # printc(js)
-    storage = ServerboardsStorage(service_id)
+    expiry = (
+        datetime.datetime.utcnow() +
+        datetime.timedelta(seconds=int(js["expires_in"]))
+    ).isoformat()
     credentials = client.OAuth2Credentials(
         access_token=js["access_token"],
         client_id=settings["client_id"].strip(),
         client_secret=settings["client_secret"].strip(),
         refresh_token=js.get("refresh_token"),
-        token_expiry=datetime.datetime.utcnow(
-        ) + datetime.timedelta(seconds=int(js["expires_in"])),
+        token_expiry=expiry,
         token_uri=OAUTH_AUTH_TOKEN_URL,
         user_agent=None,
         revoke_uri=OAUTH_AUTH_REVOKE_URL,
@@ -142,9 +144,11 @@ async def store_code(service_id, code):
         scopes=SCOPES,
         token_info_uri="https://www.googleapis.com/oauth2/v3/tokeninfo"
     )
-    credentials.set_store(storage)
-    # printc("Store credentials", credentials)
-    await serverboards.sync(storage.put, credentials)
+
+    await serverboards.event.emit(
+        'serverboards.google.analytics/token/%s' % form_id,
+        credentials.to_json()
+    )
 
     return "ok"
 
