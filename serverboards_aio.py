@@ -4,6 +4,7 @@ import json
 import time
 import traceback
 import datetime
+import inspect
 # from contextlib import contextmanager
 sys.path.append(os.path.join(os.path.dirname(__file__),
                 'env/lib64/python3.6/site-packages/'))
@@ -59,17 +60,20 @@ class RPC:
         self.__running_calls = []
         self.__waiting_calls = []
         self.__background_tasks = 0
+        self.__run_tasks_task = None
 
     async def stop(self):
         self.__running = False
         try:
+            await self.__run_queue.put("QUIT")
             await self.__call_group.cancel_remaining()
             await self.__call_group.join(wait=all)
-            await self.__run_queue.put("QUIT")
+            if self.__run_tasks_task:
+                await self.__run_tasks_task.join()
             if self.stdin:
                 await self.stdin.close()
         except curio.errors.TaskTimeout:
-            real_print(RED, "Timeout at serverboards stop.", RESET)
+            real_print(RED, "Timeout at serverboards stop.", plugin_id, RESET, end="\n\r")
 
     def register(self, name, function):
         self.__methods[name] = function
@@ -448,7 +452,16 @@ class WriteToSync:
         self.extra = extra
 
     def __call__(self, *args, **extra):
-        nextra = {**{"level": 1}, **self.extra, **extra}
+        stack = next(
+            x for x in inspect.stack()
+            if not x[1].endswith("serverboards_aio.py")
+        )
+        nextra = {
+            "level": 1,
+            "stack": stack,
+            **self.extra,
+            **extra
+        }
         if not args:  # if no data, add extras for contexts.
             return WriteToSync(self.fn, **nextra)
         run_async(self.fn, *args, result=False, **nextra)
@@ -464,19 +477,19 @@ class WriteToSync:
 
 
 def log_(type):
-    def decorate_log(extra, level=2):
+    def decorate_log(extra, level=2, stack=None):
         """
         Helper that decorates the given log messages with data of which
         function, line and file calls the log.
         """
-        import inspect
-        callerf = inspect.stack()[level]
+        if not stack:
+            stack = inspect.stack()[level]
 
         caller = {
             "plugin_id": plugin_id,
-            "function": callerf[3],
-            "file": callerf[1],
-            "line": callerf[2],
+            "function": stack[3],
+            "file": stack[1],
+            "line": stack[2],
             "pid": os.getpid(),
         }
         caller.update(extra)
@@ -484,7 +497,7 @@ def log_(type):
 
     log_method = "log.%s" % type
 
-    async def log_inner(*msg, level=0, file=None, **extra):
+    async def log_inner(*msg, level=2, file=None, stack=None, **extra):
         if not msg:
             return
         # if _debug:
@@ -502,7 +515,7 @@ def log_(type):
         return await rpc.event(
             log_method,
             str(msg),
-            decorate_log(extra, level=level + 2)
+            decorate_log(extra, level=level + 2, stack=stack)
         )
 
     return log_inner
@@ -684,6 +697,8 @@ rules = RPCWrapper("rules")
 rules_v2 = RPCWrapper("rules_v2")
 service = RPCWrapper("service")
 settings = RPCWrapper("settings")
+dashboards = RPCWrapper("dashboards")
+dashboards.widget = RPCWrapper("dashboards.widget")
 
 
 async def sync(f, *args, **kwargs):

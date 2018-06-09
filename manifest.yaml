@@ -35,12 +35,20 @@ components:
       - name: access_description
         type: description
         description: |
+          {{#access_token}}
+          **Service authorized**
+
+          Please click on the following URL to authorize again.
+
+          [Reauthorize Serverboards to access Analytics Data]({{authorization_url}})
+          {{/access_token}}
+          {{^access_token}}
+          **Service not authorized yet**
+
           Please click on the following URL to start the authorization process.
 
           [Authorize Serverboards to access Analytics Data]({{authorization_url}})
-
-          If already authorized, clicking on the URL will renew/refresh the
-          authorization, discarding the old one.
+          {{/access_token}}
         vars:
           - id: authorization_url
             command: serverboards.google.analytics/daemon

@@ -13,7 +13,6 @@ from serverboards_aio import rpc, print
 from oauth2client import client
 from urllib.parse import urlencode, urljoin
 from googleapiclient import discovery
-from pcolor import printc
 
 
 # DISCOVERY_URI = ('https://analyticsreporting.googleapis.com/$discovery/rest')
@@ -28,6 +27,8 @@ settings = {}
 @serverboards.cache_ttl(30)
 async def get_config(uuid):
     service = await serverboards.rpc.call("service.get", uuid)
+    if not service:
+        return {}  # Does not exist, but get along for proper path
     return service.get("config", {})
 
 
@@ -40,27 +41,27 @@ class ServerboardsStorage(client.Storage):
     def locked_get(self):
         try:
             content = serverboards.\
-                async(get_config, self.id).\
-                get('access_token')
+                async(get_config, self.id)
 
             if not content:
                 return None
 
-            printc("Auth code:", repr(content))
-            credentials = client.OAuth2Credentials.from_json(content)
+            access_token = content.get('access_token')
+            # print("Auth code:", repr(access_token))
+            credentials = client.OAuth2Credentials.from_json(access_token)
             credentials.set_store(self)
+            # print("Credentials", repr(credentials))
             return credentials
-        except Exception:
-            import traceback
-            traceback.print_exc()
-            # printc("Invalid credentials", file=sys.stderr)
+        except Exception as e:
+            serverboards.log_traceback(e)
+            # print("Invalid credentials", file=sys.stderr)
             pass
         return None
 
     def locked_put(self, credentials):
         get_config.invalidate_cache()
-        # printc("Update refresh token:", credentials.to_json())
-        data = {"config": json.loads(credentials.to_json())}
+        # print("Update refresh token:", credentials.to_json())
+        data = {"config": {"access_token": json.loads(credentials.to_json())}}
         serverboards.async(rpc.call, "service.update", self.id, data)
 
     def locked_delete(self):
@@ -107,7 +108,7 @@ async def authorize_url(form_id=None, **kwargs):
 
 @serverboards.rpc_method
 async def store_code(form_id, code):
-    # printc("Store code: ", code)
+    # print("Store code: ", code)
     await ensure_settings()
 
     """
@@ -126,7 +127,7 @@ async def store_code(form_id, code):
     js = dict(response.json())
     if 'error' in js:
         raise Exception(js['error_description'])
-    # printc(js)
+    # print(js)
     expiry = (
         datetime.datetime.utcnow() +
         datetime.timedelta(seconds=int(js["expires_in"]))
@@ -158,7 +159,7 @@ async def get_analytics(service_id, version='v4'):
     """
     This method may block as it uses the
     """
-    # printc("Get analytics", service_id)
+    # print("Get analytics", service_id)
 
     def threaded():
         storage = ServerboardsStorage(service_id)
@@ -383,7 +384,7 @@ async def basic_extractor_accounts(config, quals, columns):
     service_id = config["service"]
 
     analytics = await get_analytics(service_id, 'v3')
-    # printc("Analytics", analytics, color="green")
+    # print("Analytics", analytics, color="green")
     assert analytics, "Invalid analytics"
     accounts = await serverboards.sync(
         lambda: analytics.management().accountSummaries().list().execute()
@@ -410,7 +411,7 @@ async def basic_extractor_accounts(config, quals, columns):
 
 
 async def basic_extractor_data(config, quals, columns):
-    # printc(config)
+    # print(config)
     service_id = config["service"]
     profile_id = (
         config.get("config", {}).get("viewid") or
@@ -429,7 +430,24 @@ async def basic_extractor_data(config, quals, columns):
     )
 
 
-# Column names at Ga are listed at https://developers.google.com/analytics/devguides/reporting/core/dimsmets
+columns_to_dimensions = {
+    "source": "ga:source",
+    "medium": "ga:medium",
+    "keyword": "ga:keyword",
+    "page": "ga:pagePath",
+    "campaign": "ga:campaign"
+}
+columns_to_metrics = {
+    "sessions": "ga:sessions",
+    "revenue": "ga:transactionRevenue",
+    "transactions": "ga:transactions",
+    "duration": "ga:sessionDuration",
+    "bounces": "ga:bounces",
+}
+
+
+# Column names at Ga are listed at
+# https://developers.google.com/analytics/devguides/reporting/core/dimsmets
 # @serverboards.cache_ttl(120)
 async def basic_extractor_data_cacheable(start, end, service_id,
                                          profile_id, columns):
@@ -438,10 +456,14 @@ async def basic_extractor_data_cacheable(start, end, service_id,
             raise Exception("unknown-column %s" % c)
 
     analytics = await get_analytics(service_id, 'v4')
+    if not analytics:
+        raise Exception('not-configured')
+
     days = day_diff(end, start)
     rcolumns = ["profile_id", "datetime"]
 
     extra_dimensions = []
+    metrics = []
     datetime_size = 1
     if days <= 3:
         extra_dimensions.append({"name": 'ga:hour'})
@@ -450,38 +472,17 @@ async def basic_extractor_data_cacheable(start, end, service_id,
         extra_dimensions.append({"name": 'ga:minute'})
         datetime_size += 1
 
-    if 'source' in columns:
-        extra_dimensions.append({"name": "ga:source"})
-        rcolumns.append("source")
-    if 'medium' in columns:
-        extra_dimensions.append({"name": "ga:medium"})
-        rcolumns.append("medium")
-    if 'keyword' in columns:
-        extra_dimensions.append({"name": "ga:keyword"})
-        rcolumns.append("keyword")
-    if 'page' in columns:
-        extra_dimensions.append({'name': 'ga:pagePath'})
-        rcolumns.append("page")
-    if 'campaign' in columns:
-        extra_dimensions.append({'name': 'ga:campaign'})
-        rcolumns.append("campaign")
-
-    metrics = []
-    if 'sessions' in columns:
-        metrics.append({'expression': 'ga:sessions'})
-        rcolumns.append("sessions")
-    if 'revenue' in columns:
-        metrics.append({'expression': 'ga:transactionRevenue'})
-        rcolumns.append("revenue")
-    if 'transactions' in columns:
-        metrics.append({'expression': 'ga:transactions'})
-        rcolumns.append("transactions")
-    if 'duration' in columns:
-        metrics.append({'expression': 'ga:sessionDuration'})
-        rcolumns.append("duration")
-    if 'bounces' in columns:
-        metrics.append({'expression': 'ga:bounces'})
-        rcolumns.append("bounces")
+    for c in columns:
+        ga = columns_to_dimensions.get(c)
+        if ga:
+            extra_dimensions.append({"name": ga})
+            rcolumns.append(c)
+            continue
+        ga = columns_to_metrics.get(c)
+        if ga:
+            metrics.append({"expression": ga})
+            rcolumns.append(c)
+            continue
 
     rows = []
     body = {
@@ -549,7 +550,7 @@ async def rt_extractor(config, quals, columns):
             dimensions=dimensions).execute()
     )
 
-    # printc(json.dumps(res, indent=2))
+    # print(json.dumps(res, indent=2))
     rows = res.get("rows", [])
 
     return {
@@ -584,13 +585,13 @@ async def test():
     mock_data = yaml.load(open("mock.yaml"))
     requests.post = mock_method("requests.post", mock_data)
     http._retry_request = mock_method("_retry_request", mock_data)
-    printc("Start tests", color="blue")
+    print("Start tests", color="blue")
 
     serverboards.test_mode(mock_data=mock_data)
     try:
 
         url = await authorize_url({"uuid": "XXX"})
-        printc("URL to authorize is ", url)
+        print("URL to authorize is ", url)
 
         await store_code("XXX", "YYY")
 
@@ -607,10 +608,10 @@ async def test():
         config = {
             "service": "XXX"
         }
-        printc("Get accounts")
+        print("Get accounts")
         accounts = await basic_extractor(
             config, "account", [], ACCOUNT_COLUMNS)
-        printc("acc", accounts, color="blue")
+        print("acc", accounts, color="blue")
 
         data = await basic_extractor(
             config, "data", [
@@ -618,18 +619,18 @@ async def test():
                 ("datetime", ">=", "2017-01-01"),
                 ("datetime", "<=", "2017-01-31")
             ], DATA_COLUMNS)
-        printc("data", data, color="blue")
+        print("data", data, color="blue")
 
-        printc("Success", color="green")
+        print("Success", color="green")
         sys.exit(0)
     except SystemExit:
         raise
     except curio.TaskCancelled as tc:
         print(tc)
-        printc("\n\nFailed\n", color="red")
+        print("\n\nFailed\n", color="red")
         serverboards.stop()
     except Exception:
-        printc("\n\nFailed\n", color="red")
+        print("\n\nFailed\n", color="red")
         import traceback
         traceback.print_exc()
         await serverboards.rpc.stop()
@@ -640,7 +641,7 @@ if __name__ == '__main__':
         serverboards.run_async(curio.spawn, test)
         serverboards.rpc.stdin = None
         serverboards.loop(with_monitor=True)
-        printc("Failed!")
+        print("Failed!")
         sys.exit(1)
     else:
         # serverboards.set_debug(True)
