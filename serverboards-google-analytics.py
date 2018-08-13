@@ -40,14 +40,17 @@ class ServerboardsStorage(client.Storage):
 
     def locked_get(self):
         try:
-            content = serverboards.\
-                async(get_config, self.id)
+            content = serverboards.run_async(get_config, self.id)
 
             if not content:
                 return None
 
             access_token = content.get('access_token')
             # print("Auth code:", repr(access_token))
+            # access token is not stored as a string, but the JSON object itself.
+            # but it can come from first login
+            if isinstance(access_token, dict):
+                access_token = json.dumps(access_token)
             credentials = client.OAuth2Credentials.from_json(access_token)
             credentials.set_store(self)
             # print("Credentials", repr(credentials))
@@ -62,11 +65,11 @@ class ServerboardsStorage(client.Storage):
         get_config.invalidate_cache()
         # print("Update refresh token:", credentials.to_json())
         data = {"config": {"access_token": json.loads(credentials.to_json())}}
-        serverboards.async(rpc.call, "service.update", self.id, data)
+        serverboards.run_async(rpc.call, "service.update", self.id, data)
 
     def locked_delete(self):
         get_config.invalidate_cache()
-        serverboards.async(rpc.call, "service.update", self.id, {"config": {}})
+        serverboards.run_async(rpc.call, "service.update", self.id, {"config": {}})
 
 
 async def ensure_settings():
@@ -129,8 +132,8 @@ async def store_code(form_id, code):
         raise Exception(js['error_description'])
     # print(js)
     expiry = (
-        datetime.datetime.utcnow() +
-        datetime.timedelta(seconds=int(js["expires_in"]))
+        datetime.datetime.utcnow()
+        + datetime.timedelta(seconds=int(js["expires_in"]))
     ).isoformat()
     credentials = client.OAuth2Credentials(
         access_token=js["access_token"],
@@ -174,8 +177,10 @@ async def get_analytics(service_id, version='v4'):
 
 
 def date(d, t=0, m=0):
-    return time.mktime((int(d[0:4]), int(d[4:6]), int(d[6:8]), int(t), int(m),
-                       0, 0, 0, 0))
+    return time.mktime(
+        (int(d[0:4]), int(d[4:6]), int(d[6:8]), int(t), int(m),
+         0, 0, 0, 0)
+    )
 
 
 def do_clustering(data, start, end, clustering):
@@ -414,8 +419,8 @@ async def basic_extractor_data(config, quals, columns):
     # print(config)
     service_id = config["service"]
     profile_id = (
-        config.get("config", {}).get("viewid") or
-        get_qual(quals, "=", "profile_id")
+        config.get("config", {}).get("viewid")
+        or get_qual(quals, "=", "profile_id")
     )
     try:
         start = get_qual(quals, ">=", "datetime")[:10]
@@ -522,8 +527,8 @@ async def basic_extractor_data_cacheable(start, end, service_id,
 async def rt_extractor(config, quals, columns):
     service_id = config["service"]
     profile_id = (
-        config.get("config", {}).get("viewid") or
-        get_qual(quals, "=", "profile_id")
+        config.get("config", {}).get("viewid")
+        or get_qual(quals, "=", "profile_id")
     )
     analytics = await get_analytics(service_id, 'v3')
     if not analytics:
