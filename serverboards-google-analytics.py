@@ -90,6 +90,7 @@ async def ensure_settings():
 
 @serverboards.rpc_method
 async def authorize_url(form_id=None, **kwargs):
+    # await serverboards.debug("Get authorization url %s %s" % (form_id, kwargs))
     if not form_id:
         return ""
     await ensure_settings()

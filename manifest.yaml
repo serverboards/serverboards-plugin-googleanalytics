@@ -34,13 +34,13 @@ components:
     fields:
       - name: access_description
         type: description
+        dynamic: true
         description: |
           {{#access_token}}
           **Service authorized**
 
-          Please click on the following URL to authorize again.
-
-          [Reauthorize Serverboards to access Analytics Data]({{authorization_url}})
+          You can use this service, or if you want you can
+          [reauthorize it]({{authorization_url}}).
           {{/access_token}}
           {{^access_token}}
           **Service not authorized yet**
@@ -54,6 +54,7 @@ components:
             command: serverboards.google.analytics/daemon
             call: authorize_url
       - name: access_token
+        label: access_token
         type: hidden
         required: true
         subscribe: serverboards.google.analytics/token
