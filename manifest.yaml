@@ -32,9 +32,15 @@ components:
       Connection to Google Analytics.
     traits: google.analytics cloud
     fields:
+      - name: gdpr_authorization
+        type: checkbox
+        label: Google Analytics access authorization
+        description: I hereby authorize Serverboards to access my data at Google Analytics for analysis pourposes as requested by the GDPR.
       - name: access_description
+        label: Google Analytics access
         type: description
         dynamic: true
+        show_if: gdpr_authorization
         description: |
           {{#access_token}}
           **Service authorized**
