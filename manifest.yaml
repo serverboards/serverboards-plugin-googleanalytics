@@ -2,7 +2,7 @@ id: serverboards.google.analytics
 name: Google Analytics
 description: |
   Connection to Google Analytics
-version: "18.01"
+version: "18.09"
 author: David Moreno <dmoreno@serverboards.io>
 postinst: postinst.sh
 
