@@ -88,6 +88,23 @@ async def ensure_settings():
         settings.update(base)
 
 
+async def redirect_uri():
+    """
+    Google API requires to have the redirect URI registered at credentials.
+
+    As we create the domains dinamically, we will use a trampoline for the
+    answer from the auth service.
+    """
+    print("Get redirect_uri / trampoline", settings)
+    maybe_uri = settings.get("redirect_uri")
+    if maybe_uri:
+        return maybe_uri
+    return urljoin(
+        settings["base_url"],
+        "/static/serverboards.google.analytics/auth.html"
+    )
+
+
 @serverboards.rpc_method
 async def authorize_url(form_id=None, **kwargs):
     # await serverboards.debug("Get authorization url %s %s" % (form_id, kwargs))
@@ -98,11 +115,9 @@ async def authorize_url(form_id=None, **kwargs):
     params = {
         "response_type": "code",
         "client_id": settings["client_id"].strip(),
-        "redirect_uri": urljoin(
-            settings["base_url"],
-            "/static/serverboards.google.analytics/auth.html"),
+        "redirect_uri": (await redirect_uri()),
         "scope": 'https://www.googleapis.com/auth/analytics.readonly',
-        "state": form_id,
+        "state": "%s|%s" % (settings.get("base_url"), form_id),
         "access_type": "offline",
         "approval_prompt": "force"
     }
@@ -111,20 +126,21 @@ async def authorize_url(form_id=None, **kwargs):
 
 
 @serverboards.rpc_method
-async def store_code(form_id, code):
-    # print("Store code: ", code)
-    await ensure_settings()
-
+async def store_code(url_form_id, code):
     """
     Stores the code and get a refresh token and a access token
     """
+
+    # print("Store code: ", code)
+    await ensure_settings()
+    url, form_id = url_form_id.split('|')
+    assert url == settings.get("base_url"), "URL do not match."
+
     params = {
         "code": code,
         "client_id": settings["client_id"].strip(),
         "client_secret": settings["client_secret"].strip(),
-        "redirect_uri": urljoin(
-            settings["base_url"],
-            "/static/serverboards.google.analytics/auth.html"),
+        "redirect_uri": (await redirect_uri()),
         "grant_type": "authorization_code",
     }
     response = requests.post(OAUTH_AUTH_TOKEN_URL, params)
